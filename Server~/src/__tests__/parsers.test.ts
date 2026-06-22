@@ -40,5 +40,21 @@ test('summarizeEditorLog counts warnings and errors from recent lines', () => {
   assert.equal(summary.warningCount, 1);
   assert.equal(summary.errorCount, 2);
   assert.deepEqual(summary.bridgeLines, ['[ProjectMQaMcp] command complete']);
+  assert.deepEqual(summary.warningLines, ['WARNING: shader warning']);
+  assert.deepEqual(summary.errorLines, ['Error: failed to import', 'Exception: boom']);
   assert.equal(summary.tail.length, 5);
+});
+
+test('summarizeEditorLog treats Unity MonoBehaviour constructor diagnostic as an error', () => {
+  const log = [
+    'Info line',
+    "You are trying to create a MonoBehaviour using the 'new' keyword.  This is not allowed.",
+    'UnityEngine.MonoBehaviour:.ctor ()'
+  ].join('\n');
+
+  const summary = summarizeEditorLog(log, 10);
+
+  assert.equal(summary.warningCount, 0);
+  assert.equal(summary.errorCount, 1);
+  assert.deepEqual(summary.errorLines, ["You are trying to create a MonoBehaviour using the 'new' keyword.  This is not allowed."]);
 });

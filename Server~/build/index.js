@@ -21383,18 +21383,30 @@ function delay(ms) {
 }
 
 // src/utils/editorLog.ts
+var warningPatterns = [
+  /\bwarning\b/i
+];
+var errorPatterns = [
+  /\berror\b/i,
+  /\bexception\b/i,
+  /trying to create a MonoBehaviour using the 'new' keyword/i
+];
 function summarizeEditorLog(logText, maxLines) {
   const lines = logText.split(/\r?\n/).filter((line) => line.length > 0);
   const tail = lines.slice(-maxLines);
+  const warningLines = tail.filter((line) => matchesAny(line, warningPatterns));
+  const errorLines = tail.filter((line) => matchesAny(line, errorPatterns));
   return {
     tail,
-    warningCount: countMatching(tail, /\bwarning\b/i),
-    errorCount: countMatching(tail, /\berror\b|\bexception\b/i),
-    bridgeLines: tail.filter((line) => line.includes("[ProjectMQaMcp]"))
+    warningCount: warningLines.length,
+    errorCount: errorLines.length,
+    bridgeLines: tail.filter((line) => line.includes("[ProjectMQaMcp]")),
+    warningLines,
+    errorLines
   };
 }
-function countMatching(lines, pattern) {
-  return lines.reduce((count, line) => count + (pattern.test(line) ? 1 : 0), 0);
+function matchesAny(line, patterns) {
+  return patterns.some((pattern) => pattern.test(line));
 }
 
 // src/processes.ts
