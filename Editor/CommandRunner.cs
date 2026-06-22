@@ -140,6 +140,9 @@ namespace ProjectMQaMcp.Editor
                 case "exit_play_mode":
                     SetPlayMode(false, response);
                     break;
+                case "dump_ui":
+                    DumpUi(parameters, response);
+                    break;
                 default:
                     throw new NotSupportedException($"Unsupported command: {request.command}");
             }
@@ -357,6 +360,79 @@ namespace ProjectMQaMcp.Editor
             EditorApplication.isPlaying = play;
             response.AddOutput("requestedPlaying", play.ToString());
             response.AddOutput("isPlayingNow", EditorApplication.isPlaying.ToString());
+        }
+
+        private static void DumpUi(CommandParameters parameters, CommandResponse response)
+        {
+            var uiCamera = FindUiCamera();
+            var lines = new List<string>();
+            foreach (var go in Resources.FindObjectsOfTypeAll<GameObject>())
+            {
+                if (EditorUtility.IsPersistent(go) || !go.activeInHierarchy)
+                {
+                    continue;
+                }
+
+                var label = GetNguiLabelText(go);
+                var collider = go.GetComponent<Collider>();
+                if (string.IsNullOrEmpty(label) && collider == null)
+                {
+                    continue;
+                }
+
+                var kind = collider != null ? "clickable" : "label";
+                var coord = string.Empty;
+                if (uiCamera != null)
+                {
+                    var world = collider != null ? collider.bounds.center : go.transform.position;
+                    var screen = uiCamera.WorldToScreenPoint(world);
+                    var normalizedX = screen.x / Screen.width;
+                    var normalizedY = 1f - screen.y / Screen.height;
+                    coord = $"\tx={normalizedX:F3}\ty={normalizedY:F3}";
+                }
+
+                var text = string.IsNullOrEmpty(label) ? string.Empty : $"\ttext={label}";
+                lines.Add($"{GetHierarchyPath(go)}\t{kind}{coord}{text}");
+            }
+
+            response.AddOutput("count", lines.Count.ToString());
+            response.AddOutput("ui", string.Join("\n", lines));
+        }
+
+        private static Camera FindUiCamera()
+        {
+            var uiCameraType = AppDomain.CurrentDomain.GetAssemblies()
+                .Select(assembly => assembly.GetType("UICamera"))
+                .FirstOrDefault(type => type != null);
+            if (uiCameraType == null)
+            {
+                return FindCamera(null);
+            }
+
+            var uiCameraComponent = Resources.FindObjectsOfTypeAll(uiCameraType)
+                .Cast<Component>()
+                .FirstOrDefault(x => !EditorUtility.IsPersistent(x) && x.gameObject.activeInHierarchy);
+            return uiCameraComponent != null ? uiCameraComponent.GetComponent<Camera>() : FindCamera(null);
+        }
+
+        private static string GetNguiLabelText(GameObject go)
+        {
+            foreach (var component in go.GetComponents<Component>())
+            {
+                if (component == null || component.GetType().Name != "UILabel")
+                {
+                    continue;
+                }
+
+                var textProperty = component.GetType().GetProperty("text");
+                var value = textProperty?.GetValue(component, null) as string;
+                if (!string.IsNullOrEmpty(value))
+                {
+                    return value.Replace("\n", " ").Replace("\t", " ");
+                }
+            }
+
+            return null;
         }
 
         private static Camera FindCamera(string cameraName)
