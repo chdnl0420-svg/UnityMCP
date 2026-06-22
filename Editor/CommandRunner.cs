@@ -16,6 +16,7 @@ namespace ProjectMQaMcp.Editor
     {
         private const string LogPrefix = "[ProjectMQaMcp]";
         private const double PollIntervalSeconds = 1.0;
+        private const float FallbackClickMaxNormalizedDistanceSqr = 0.18f;
 
         private static double nextPollTime;
         private static bool isProcessing;
@@ -460,8 +461,8 @@ namespace ProjectMQaMcp.Editor
             }
 
             var labelScreen = uiCamera.WorldToScreenPoint(label.transform.position);
-            var target = FindClickableTarget(label, labelScreen);
-            if (target == null)
+            var clickTarget = ResolveClickableTarget(label, labelScreen);
+            if (clickTarget == null)
             {
                 response.success = false;
                 response.error = new CommandError
@@ -472,24 +473,30 @@ namespace ProjectMQaMcp.Editor
                 return;
             }
 
-            var clickCollider = target.GetComponent<Collider>();
-            var clickWorld = clickCollider != null ? clickCollider.bounds.center : target.transform.position;
+            var clickCollider = clickTarget.Target.GetComponent<Collider>();
+            var clickWorld = clickCollider != null ? clickCollider.bounds.center : clickTarget.Target.transform.position;
             var clickScreen = uiCamera.WorldToScreenPoint(clickWorld);
             var clickX = clickScreen.x / Screen.width;
             var clickY = 1f - clickScreen.y / Screen.height;
 
-            if (!NotifyNgui(target, "OnClick", null))
+            if (!NotifyNgui(clickTarget.Target, "OnClick", null))
             {
-                target.SendMessage("OnClick", null, SendMessageOptions.DontRequireReceiver);
+                clickTarget.Target.SendMessage("OnClick", null, SendMessageOptions.DontRequireReceiver);
                 response.logs.Add($"{LogPrefix} UICamera.Notify not found; used SendMessage fallback.");
             }
 
             response.AddOutput("text", GetNguiLabelText(label));
             response.AddOutput("labelPath", GetHierarchyPath(label));
-            response.AddOutput("hitPath", GetHierarchyPath(target));
-            response.AddOutput("hitName", target.name);
+            response.AddOutput("hitPath", GetHierarchyPath(clickTarget.Target));
+            response.AddOutput("hitName", clickTarget.Target.name);
             response.AddOutput("screenPos", $"{clickScreen.x:F1},{clickScreen.y:F1}");
             response.AddOutput("normalizedPos", $"{clickX:F3},{clickY:F3}");
+            response.AddOutput("clickResolution", clickTarget.Resolution);
+            if (clickTarget.Distance > 0f)
+            {
+                response.AddOutput("clickDistance", $"{clickTarget.Distance:F3}");
+            }
+
             response.AddOutput("clicked", "true");
         }
 
@@ -601,7 +608,8 @@ namespace ProjectMQaMcp.Editor
                     var normalizedY = 1f - screen.y / Screen.height;
                     coord = $"\tx={normalizedX:F3}\ty={normalizedY:F3}";
 
-                    clickTarget = FindClickableTarget(go, screen);
+                    var clickTargetResolution = ResolveClickableTarget(go, screen);
+                    clickTarget = clickTargetResolution?.Target;
                     if (clickTarget != null)
                     {
                         var clickCollider = clickTarget.GetComponent<Collider>();
@@ -609,7 +617,11 @@ namespace ProjectMQaMcp.Editor
                         var clickScreen = uiCamera.WorldToScreenPoint(clickWorld);
                         var clickX = clickScreen.x / Screen.width;
                         var clickY = 1f - clickScreen.y / Screen.height;
-                        clickCoord = $"\tclickPath={GetHierarchyPath(clickTarget)}\tclickX={clickX:F3}\tclickY={clickY:F3}";
+                        var clickDistance = clickTargetResolution.Distance > 0f
+                            ? $"\tclickDistance={clickTargetResolution.Distance:F3}"
+                            : string.Empty;
+                        clickCoord = $"\tclickPath={GetHierarchyPath(clickTarget)}\tclickX={clickX:F3}\tclickY={clickY:F3}" +
+                            $"\tclickResolution={clickTargetResolution.Resolution}{clickDistance}";
                     }
                 }
 
@@ -637,6 +649,124 @@ namespace ProjectMQaMcp.Editor
 
             var ancestor = FindClickableAncestor(go);
             return ancestor != null ? ancestor.gameObject : null;
+        }
+
+        private static ClickTargetResolution ResolveClickableTarget(GameObject go, Vector3 screenPos)
+        {
+            var directTarget = FindClickableTarget(go, screenPos);
+            if (directTarget != null)
+            {
+                return new ClickTargetResolution
+                {
+                    Target = directTarget,
+                    Resolution = "direct",
+                    Distance = 0f
+                };
+            }
+
+            return FindNearestClickableTarget(go, screenPos);
+        }
+
+        private static ClickTargetResolution FindNearestClickableTarget(GameObject source, Vector3 sourceScreen)
+        {
+            var uiCamera = FindUiCamera();
+            if (uiCamera == null)
+            {
+                return null;
+            }
+
+            var bestTarget = default(GameObject);
+            var bestAffinity = -1;
+            var bestDistanceSqr = float.MaxValue;
+            foreach (var go in Resources.FindObjectsOfTypeAll<GameObject>())
+            {
+                if (go == source || EditorUtility.IsPersistent(go) || !go.activeInHierarchy)
+                {
+                    continue;
+                }
+
+                var label = GetNguiLabelText(go);
+                var collider = go.GetComponent<Collider>();
+                if (string.IsNullOrEmpty(label) && collider == null)
+                {
+                    continue;
+                }
+
+                var world = collider != null ? collider.bounds.center : go.transform.position;
+                var screen = uiCamera.WorldToScreenPoint(world);
+                var distanceSqr = GetNormalizedScreenDistanceSqr(sourceScreen, screen);
+                if (distanceSqr > FallbackClickMaxNormalizedDistanceSqr)
+                {
+                    continue;
+                }
+
+                var target = FindClickableTarget(go, screen);
+                if (target == null || target == source)
+                {
+                    continue;
+                }
+
+                var affinity = CountSharedHierarchy(source.transform, target.transform);
+                if (bestTarget == null || affinity > bestAffinity ||
+                    affinity == bestAffinity && distanceSqr < bestDistanceSqr)
+                {
+                    bestTarget = target;
+                    bestAffinity = affinity;
+                    bestDistanceSqr = distanceSqr;
+                }
+            }
+
+            if (bestTarget == null)
+            {
+                return null;
+            }
+
+            return new ClickTargetResolution
+            {
+                Target = bestTarget,
+                Resolution = "nearest",
+                Distance = Mathf.Sqrt(bestDistanceSqr)
+            };
+        }
+
+        private static float GetNormalizedScreenDistanceSqr(Vector3 a, Vector3 b)
+        {
+            var x = (a.x - b.x) / Screen.width;
+            var y = (a.y - b.y) / Screen.height;
+            return x * x + y * y;
+        }
+
+        private static int CountSharedHierarchy(Transform a, Transform b)
+        {
+            var aPath = GetTransformPath(a);
+            var bPath = GetTransformPath(b);
+            var count = 0;
+            var max = Math.Min(aPath.Count, bPath.Count);
+            for (var i = 0; i < max; i++)
+            {
+                if (aPath[i] != bPath[i])
+                {
+                    break;
+                }
+
+                count++;
+            }
+
+            return count;
+        }
+
+        private static List<Transform> GetTransformPath(Transform transform)
+        {
+            var path = new List<Transform>();
+            var current = transform;
+            while (current != null)
+            {
+                path.Add(current);
+                current = current.parent;
+            }
+
+            path.Reverse();
+            return path;
         }
 
         private static GameObject FindLabelByText(string text, bool includeInactive)
@@ -841,6 +971,13 @@ namespace ProjectMQaMcp.Editor
                 UnityEngine.Debug.LogWarning($"{LogPrefix} failed to archive request: {e.Message}");
             }
         }
+    }
+
+    public sealed class ClickTargetResolution
+    {
+        public GameObject Target;
+        public string Resolution;
+        public float Distance;
     }
 
     [Serializable]

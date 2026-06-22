@@ -57,6 +57,8 @@ manual coordinate transfer from `dump_ui`. `unity_wait_ui_text` polls `dump_ui`
 until expected text appears, which makes post-click screen confirmation
 deterministic. `unity_click_ui_text_and_wait` combines the click and expected
 text wait into one QA step.
+Labels that have no direct clickable object can resolve to a nearby clickable
+target; those rows and click responses include `clickResolution=nearest`.
 `unity_run_ui_text_qa_flow` wraps the common Splash QA path into one tool call:
 enter PlayMode, wait for initial text, capture before, click text, wait for
 expected text, capture after, then optionally exit PlayMode. The response keeps
