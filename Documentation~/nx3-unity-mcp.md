@@ -47,12 +47,14 @@ The Node MCP server also exposes higher-level PlayMode helpers:
 - `unity_exit_play_mode`
 - `unity_click_ui_text`
 - `unity_wait_ui_text`
+- `unity_click_ui_text_and_wait`
 
 The PlayMode helpers call the bridge command first, then poll `editor_status`
 until the requested `isPlaying` state is observed. `unity_click_ui_text` finds a
 visible NGUI label by text and clicks the resolved clickable target, avoiding
 manual coordinate transfer from `dump_ui`. `unity_wait_ui_text` polls `dump_ui`
 until expected text appears, which makes post-click screen confirmation
-deterministic.
+deterministic. `unity_click_ui_text_and_wait` combines the click and expected
+text wait into one QA step.
 
 NGUI support is reflection-based. Projects without NGUI still compile.

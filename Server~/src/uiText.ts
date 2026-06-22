@@ -27,6 +27,88 @@ export interface WaitUiTextResult {
   };
 }
 
+export interface ClickUiTextAndWaitOptions {
+  clickText: string;
+  waitText: string;
+  exact?: boolean;
+  includeInactive?: boolean;
+  timeoutMs: number;
+  pollIntervalMs?: number;
+  commandTimeoutMs?: number;
+  execute: (command: string, parameters: Record<string, unknown>, timeoutMs: number) => Promise<EditorCommandResponse>;
+  delay?: (ms: number) => Promise<void>;
+  now?: () => number;
+}
+
+export interface ClickUiTextAndWaitResult {
+  success: boolean;
+  clickText: string;
+  waitText: string;
+  exact: boolean;
+  elapsedMs: number;
+  polls: number;
+  clickResponse: EditorCommandResponse;
+  waitResult?: WaitUiTextResult;
+  matchedLine?: string;
+  lastUi?: string;
+  error?: {
+    message: string;
+  };
+}
+
+export async function clickUiTextAndWait(options: ClickUiTextAndWaitOptions): Promise<ClickUiTextAndWaitResult> {
+  const now = options.now ?? (() => Date.now());
+  const exact = options.exact ?? false;
+  const commandTimeoutMs = options.commandTimeoutMs ?? 15000;
+  const startedAt = now();
+  const clickResponse = await options.execute('click_ui_text', {
+    text: options.clickText,
+    includeInactive: options.includeInactive ?? false,
+  }, commandTimeoutMs);
+
+  if (!clickResponse.success) {
+    return {
+      success: false,
+      clickText: options.clickText,
+      waitText: options.waitText,
+      exact,
+      elapsedMs: now() - startedAt,
+      polls: 0,
+      clickResponse,
+      error: {
+        message: clickResponse.error?.message ?? `click_ui_text failed for "${options.clickText}"`,
+      },
+    };
+  }
+
+  const remainingMs = Math.max(0, options.timeoutMs - (now() - startedAt));
+  const waitResult = await waitForUiText({
+    text: options.waitText,
+    exact,
+    includeInactive: options.includeInactive,
+    timeoutMs: remainingMs,
+    pollIntervalMs: options.pollIntervalMs,
+    commandTimeoutMs,
+    execute: options.execute,
+    delay: options.delay,
+    now,
+  });
+
+  return {
+    success: waitResult.success,
+    clickText: options.clickText,
+    waitText: options.waitText,
+    exact,
+    elapsedMs: now() - startedAt,
+    polls: waitResult.polls,
+    clickResponse,
+    waitResult,
+    matchedLine: waitResult.matchedLine,
+    lastUi: waitResult.lastUi,
+    error: waitResult.error,
+  };
+}
+
 export async function waitForUiText(options: WaitUiTextOptions): Promise<WaitUiTextResult> {
   const now = options.now ?? (() => Date.now());
   const delay = options.delay ?? defaultDelay;

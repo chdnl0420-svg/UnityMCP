@@ -21558,6 +21558,55 @@ function defaultDelay(ms) {
 }
 
 // src/uiText.ts
+async function clickUiTextAndWait(options) {
+  const now = options.now ?? (() => Date.now());
+  const exact = options.exact ?? false;
+  const commandTimeoutMs = options.commandTimeoutMs ?? 15e3;
+  const startedAt = now();
+  const clickResponse = await options.execute("click_ui_text", {
+    text: options.clickText,
+    includeInactive: options.includeInactive ?? false
+  }, commandTimeoutMs);
+  if (!clickResponse.success) {
+    return {
+      success: false,
+      clickText: options.clickText,
+      waitText: options.waitText,
+      exact,
+      elapsedMs: now() - startedAt,
+      polls: 0,
+      clickResponse,
+      error: {
+        message: clickResponse.error?.message ?? `click_ui_text failed for "${options.clickText}"`
+      }
+    };
+  }
+  const remainingMs = Math.max(0, options.timeoutMs - (now() - startedAt));
+  const waitResult = await waitForUiText({
+    text: options.waitText,
+    exact,
+    includeInactive: options.includeInactive,
+    timeoutMs: remainingMs,
+    pollIntervalMs: options.pollIntervalMs,
+    commandTimeoutMs,
+    execute: options.execute,
+    delay: options.delay,
+    now
+  });
+  return {
+    success: waitResult.success,
+    clickText: options.clickText,
+    waitText: options.waitText,
+    exact,
+    elapsedMs: now() - startedAt,
+    polls: waitResult.polls,
+    clickResponse,
+    waitResult,
+    matchedLine: waitResult.matchedLine,
+    lastUi: waitResult.lastUi,
+    error: waitResult.error
+  };
+}
 async function waitForUiText(options) {
   const now = options.now ?? (() => Date.now());
   const delay2 = options.delay ?? defaultDelay2;
@@ -21696,6 +21745,15 @@ function registerTools(server2) {
     timeoutMs: timeoutSchema,
     pollIntervalMs: external_exports.number().int().positive().max(1e4).optional()
   }, async (params) => toToolResult(await unityWaitUiText(params)));
+  server2.tool("unity_click_ui_text_and_wait", "Clicks a visible NGUI label by text, then waits for expected UI text.", {
+    ...baseConfigShape,
+    clickText: external_exports.string().min(1),
+    waitText: external_exports.string().min(1),
+    exact: external_exports.boolean().optional(),
+    includeInactive: external_exports.boolean().optional(),
+    timeoutMs: timeoutSchema,
+    pollIntervalMs: external_exports.number().int().positive().max(1e4).optional()
+  }, async (params) => toToolResult(await unityClickUiTextAndWait(params)));
   server2.tool("unity_enter_play_mode", "Requests Unity PlayMode and waits until editor_status reports isPlaying=true.", {
     ...baseConfigShape,
     timeoutMs: timeoutSchema,
@@ -21835,6 +21893,27 @@ async function unityClickUiText(params) {
     },
     timeoutMs: params.timeoutMs ?? 15e3,
     runOnce: params.runOnce ?? false
+  });
+}
+async function unityClickUiTextAndWait(params) {
+  const config2 = resolveProjectConfig(params);
+  return clickUiTextAndWait({
+    clickText: params.clickText,
+    waitText: params.waitText,
+    exact: params.exact ?? false,
+    includeInactive: params.includeInactive ?? false,
+    timeoutMs: params.timeoutMs ?? 3e4,
+    pollIntervalMs: params.pollIntervalMs ?? 500,
+    commandTimeoutMs: Math.min(params.timeoutMs ?? 15e3, 15e3),
+    execute: (command, parameters, timeoutMs) => executeEditorCommand({
+      unityPath: config2.unityPath,
+      projectPath: config2.projectPath,
+      commandRoot: config2.commandRoot,
+      command,
+      parameters,
+      timeoutMs,
+      runOnce: false
+    })
   });
 }
 async function unityWaitUiText(params) {

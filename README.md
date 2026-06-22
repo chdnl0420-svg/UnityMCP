@@ -80,6 +80,8 @@ success.
 instead of requiring manual `dump_ui` coordinate transfer.
 `unity_wait_ui_text` must poll `dump_ui` until expected text appears or return a
 timed-out response with the last observed UI dump.
+`unity_click_ui_text_and_wait` must click a visible label and return the
+post-click matched UI text in one response.
 Test tools parse Unity Test Framework XML and expose failure counts.
 Screenshot tools verify that a PNG exists and has non-zero size.
 
