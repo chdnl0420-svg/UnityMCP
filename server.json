@@ -1,0 +1,11 @@
+{
+  "name": "projectm-qa-mcp",
+  "command": "node",
+  "args": [
+    "Server~/build/index.js"
+  ],
+  "env": {
+    "PROJECTM_UNITY_PATH": "C:\\Program Files\\Unity\\Hub\\Editor\\2022.3.76f1\\Editor\\Unity.exe",
+    "PROJECTM_DEFAULT_PROJECT_PATH": "C:\\Project\\CLIENT_KSH_ASIA_L\\client\\ProjectM"
+  }
+}
