@@ -33,5 +33,19 @@ Supported MVP commands:
 - `load_prefab`
 - `find_ngui_object`
 - `click_ngui_object`
+- `click_at`
+- `enter_play_mode`
+- `exit_play_mode`
+- `dump_ui`
+- `batch`
+- `resolve_packages`
+
+The Node MCP server also exposes higher-level PlayMode helpers:
+
+- `unity_enter_play_mode`
+- `unity_exit_play_mode`
+
+These helpers call the bridge command first, then poll `editor_status` until
+the requested `isPlaying` state is observed.
 
 NGUI support is reflection-based. Projects without NGUI still compile.

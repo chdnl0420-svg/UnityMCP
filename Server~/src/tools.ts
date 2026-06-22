@@ -9,6 +9,7 @@ import { launchUnity, runUnityTests } from './unityCli.js';
 import { fileSize, pathExists, readTail } from './utils/files.js';
 import { summarizeEditorLog } from './utils/editorLog.js';
 import { findStaleCandidates, killProcess, listUnityRelatedProcesses } from './processes.js';
+import { normalizeOutputs, setPlayModeAndWait } from './playMode.js';
 
 const baseConfigShape = {
   unityPath: z.string().optional(),
@@ -63,6 +64,18 @@ export function registerTools(server: McpServer): void {
     timeoutMs: timeoutSchema,
     runOnce: z.boolean().optional(),
   }, async (params) => toToolResult(await unityCaptureScreenshot(params)));
+
+  server.tool('unity_enter_play_mode', 'Requests Unity PlayMode and waits until editor_status reports isPlaying=true.', {
+    ...baseConfigShape,
+    timeoutMs: timeoutSchema,
+    pollIntervalMs: z.number().int().positive().max(10000).optional(),
+  }, async (params) => toToolResult(await unitySetPlayMode(params, true)));
+
+  server.tool('unity_exit_play_mode', 'Requests Unity to leave PlayMode and waits until editor_status reports isPlaying=false.', {
+    ...baseConfigShape,
+    timeoutMs: timeoutSchema,
+    pollIntervalMs: z.number().int().positive().max(10000).optional(),
+  }, async (params) => toToolResult(await unitySetPlayMode(params, false)));
 
   server.tool('unity_kill_stale', 'Reports stale Unity/node/MCP processes and optionally kills only explicit stale candidates.', {
     ...baseConfigShape,
@@ -190,6 +203,25 @@ async function unityCaptureScreenshot(params: any): Promise<unknown> {
   };
 }
 
+async function unitySetPlayMode(params: any, targetPlaying: boolean): Promise<unknown> {
+  const config = resolveProjectConfig(params);
+  return setPlayModeAndWait({
+    targetPlaying,
+    timeoutMs: params.timeoutMs ?? 60000,
+    pollIntervalMs: params.pollIntervalMs ?? 500,
+    commandTimeoutMs: Math.min(params.timeoutMs ?? 15000, 15000),
+    execute: (command, parameters, timeoutMs) => executeEditorCommand({
+      unityPath: config.unityPath,
+      projectPath: config.projectPath,
+      commandRoot: config.commandRoot,
+      command,
+      parameters,
+      timeoutMs,
+      runOnce: false,
+    }),
+  });
+}
+
 async function unityKillStale(params: any): Promise<unknown> {
   const config = resolveProjectConfig(params);
   const processes = await listUnityRelatedProcesses();
@@ -219,26 +251,6 @@ async function unityKillStale(params: any): Promise<unknown> {
     killed,
     candidates,
   };
-}
-
-function normalizeOutputs(outputs: unknown): Record<string, unknown> {
-  if (Array.isArray(outputs)) {
-    return outputs.reduce<Record<string, unknown>>((acc, item) => {
-      if (item && typeof item === 'object' && 'key' in item && 'value' in item) {
-        const entry = item as { key?: unknown; value?: unknown };
-        if (typeof entry.key === 'string') {
-          acc[entry.key] = entry.value;
-        }
-      }
-      return acc;
-    }, {});
-  }
-
-  if (outputs && typeof outputs === 'object') {
-    return outputs as Record<string, unknown>;
-  }
-
-  return {};
 }
 
 function toToolResult(value: unknown): any {

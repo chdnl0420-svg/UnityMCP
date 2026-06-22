@@ -21464,6 +21464,99 @@ async function killProcess(pid) {
   process.kill(pid, "SIGTERM");
 }
 
+// src/playMode.ts
+async function setPlayModeAndWait(options) {
+  const now = options.now ?? (() => Date.now());
+  const delay2 = options.delay ?? defaultDelay;
+  const pollIntervalMs = options.pollIntervalMs ?? 500;
+  const commandTimeoutMs = options.commandTimeoutMs ?? 15e3;
+  const transitionCommand = options.targetPlaying ? "enter_play_mode" : "exit_play_mode";
+  const startedAt = now();
+  const transitionResponse = await options.execute(transitionCommand, {}, commandTimeoutMs);
+  if (!transitionResponse.success) {
+    return {
+      success: false,
+      targetPlaying: options.targetPlaying,
+      isPlaying: void 0,
+      elapsedMs: now() - startedAt,
+      polls: 0,
+      transitionCommand,
+      transitionResponse,
+      error: {
+        message: transitionResponse.error?.message ?? `${transitionCommand} failed`
+      }
+    };
+  }
+  let polls = 0;
+  let lastStatus;
+  while (now() - startedAt < options.timeoutMs) {
+    lastStatus = await options.execute("editor_status", {}, commandTimeoutMs);
+    polls += 1;
+    const isPlaying = readBooleanOutput(lastStatus.outputs, "isPlaying");
+    if (isPlaying === options.targetPlaying) {
+      return {
+        success: true,
+        targetPlaying: options.targetPlaying,
+        isPlaying,
+        elapsedMs: now() - startedAt,
+        polls,
+        transitionCommand,
+        transitionResponse,
+        lastStatus
+      };
+    }
+    await delay2(pollIntervalMs);
+  }
+  return {
+    success: false,
+    targetPlaying: options.targetPlaying,
+    isPlaying: lastStatus ? readBooleanOutput(lastStatus.outputs, "isPlaying") : void 0,
+    elapsedMs: now() - startedAt,
+    polls,
+    transitionCommand,
+    transitionResponse,
+    lastStatus,
+    error: {
+      message: `Timed out waiting for PlayMode=${options.targetPlaying} after ${options.timeoutMs}ms`
+    }
+  };
+}
+function readBooleanOutput(outputs, key) {
+  const value = normalizeOutputs(outputs)[key];
+  if (typeof value === "boolean") {
+    return value;
+  }
+  if (typeof value === "string") {
+    if (value.toLowerCase() === "true") {
+      return true;
+    }
+    if (value.toLowerCase() === "false") {
+      return false;
+    }
+  }
+  return void 0;
+}
+function normalizeOutputs(outputs) {
+  if (Array.isArray(outputs)) {
+    return outputs.reduce((acc, item) => {
+      if (item && typeof item === "object" && "key" in item && "value" in item) {
+        const entry = item;
+        if (typeof entry.key === "string") {
+          acc[entry.key] = entry.value;
+        }
+      }
+      return acc;
+    }, {});
+  }
+  if (outputs && typeof outputs === "object") {
+    return outputs;
+  }
+  return {};
+}
+function defaultDelay(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 // src/tools.ts
 var baseConfigShape = {
   unityPath: external_exports.string().optional(),
@@ -21510,6 +21603,16 @@ function registerTools(server2) {
     timeoutMs: timeoutSchema,
     runOnce: external_exports.boolean().optional()
   }, async (params) => toToolResult(await unityCaptureScreenshot(params)));
+  server2.tool("unity_enter_play_mode", "Requests Unity PlayMode and waits until editor_status reports isPlaying=true.", {
+    ...baseConfigShape,
+    timeoutMs: timeoutSchema,
+    pollIntervalMs: external_exports.number().int().positive().max(1e4).optional()
+  }, async (params) => toToolResult(await unitySetPlayMode(params, true)));
+  server2.tool("unity_exit_play_mode", "Requests Unity to leave PlayMode and waits until editor_status reports isPlaying=false.", {
+    ...baseConfigShape,
+    timeoutMs: timeoutSchema,
+    pollIntervalMs: external_exports.number().int().positive().max(1e4).optional()
+  }, async (params) => toToolResult(await unitySetPlayMode(params, false)));
   server2.tool("unity_kill_stale", "Reports stale Unity/node/MCP processes and optionally kills only explicit stale candidates.", {
     ...baseConfigShape,
     kill: external_exports.boolean().optional(),
@@ -21626,6 +21729,24 @@ async function unityCaptureScreenshot(params) {
     }
   };
 }
+async function unitySetPlayMode(params, targetPlaying) {
+  const config2 = resolveProjectConfig(params);
+  return setPlayModeAndWait({
+    targetPlaying,
+    timeoutMs: params.timeoutMs ?? 6e4,
+    pollIntervalMs: params.pollIntervalMs ?? 500,
+    commandTimeoutMs: Math.min(params.timeoutMs ?? 15e3, 15e3),
+    execute: (command, parameters, timeoutMs) => executeEditorCommand({
+      unityPath: config2.unityPath,
+      projectPath: config2.projectPath,
+      commandRoot: config2.commandRoot,
+      command,
+      parameters,
+      timeoutMs,
+      runOnce: false
+    })
+  });
+}
 async function unityKillStale(params) {
   const config2 = resolveProjectConfig(params);
   const processes = await listUnityRelatedProcesses();
@@ -21651,23 +21772,6 @@ async function unityKillStale(params) {
     killed,
     candidates
   };
-}
-function normalizeOutputs(outputs) {
-  if (Array.isArray(outputs)) {
-    return outputs.reduce((acc, item) => {
-      if (item && typeof item === "object" && "key" in item && "value" in item) {
-        const entry = item;
-        if (typeof entry.key === "string") {
-          acc[entry.key] = entry.value;
-        }
-      }
-      return acc;
-    }, {});
-  }
-  if (outputs && typeof outputs === "object") {
-    return outputs;
-  }
-  return {};
 }
 function toToolResult(value) {
   return {

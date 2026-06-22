@@ -73,6 +73,9 @@ Server~/build/index.js
 `unity_status` must return real JSON data, not just a connection signal.
 Editor commands must write response JSON with `success`, `command`,
 `elapsedMs`, `logs`, `outputs`, and `error`.
+`unity_enter_play_mode` and `unity_exit_play_mode` must wait for
+`editor_status` to report the requested `isPlaying` value before returning
+success.
 Test tools parse Unity Test Framework XML and expose failure counts.
 Screenshot tools verify that a PNG exists and has non-zero size.
 
