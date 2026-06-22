@@ -134,6 +134,12 @@ namespace ProjectMQaMcp.Editor
                 case "click_at":
                     ClickAt(parameters, response);
                     break;
+                case "enter_play_mode":
+                    SetPlayMode(true, response);
+                    break;
+                case "exit_play_mode":
+                    SetPlayMode(false, response);
+                    break;
                 default:
                     throw new NotSupportedException($"Unsupported command: {request.command}");
             }
@@ -153,6 +159,27 @@ namespace ProjectMQaMcp.Editor
             var width = parameters.width > 0 ? parameters.width : 1280;
             var height = parameters.height > 0 ? parameters.height : 720;
             Directory.CreateDirectory(Path.GetDirectoryName(outputPath) ?? ".");
+
+            if (Application.isPlaying)
+            {
+                var screenTexture = ScreenCapture.CaptureScreenshotAsTexture();
+                try
+                {
+                    File.WriteAllBytes(outputPath, screenTexture.EncodeToPNG());
+                    response.AddOutput("mode", "screenCapture");
+                    response.AddOutput("width", screenTexture.width.ToString());
+                    response.AddOutput("height", screenTexture.height.ToString());
+                }
+                finally
+                {
+                    Object.DestroyImmediate(screenTexture);
+                }
+
+                var playInfo = new FileInfo(outputPath);
+                response.AddOutput("outputPath", outputPath);
+                response.AddOutput("pngBytes", playInfo.Exists ? playInfo.Length.ToString() : "0");
+                return;
+            }
 
             var camera = FindCamera(parameters.cameraName);
             if (camera == null)
@@ -253,32 +280,29 @@ namespace ProjectMQaMcp.Editor
 
         private static void ClickAt(CommandParameters parameters, CommandResponse response)
         {
-            var camera = FindCamera(parameters.cameraName);
-            if (camera == null)
+            var screenX = Mathf.Clamp01(parameters.pointX) * Screen.width;
+            var screenY = (1f - Mathf.Clamp01(parameters.pointY)) * Screen.height;
+            var screenPos = new Vector3(screenX, screenY, 0f);
+            response.AddOutput("screenPos", $"{screenX:F1},{screenY:F1}");
+            response.AddOutput("screenSize", $"{Screen.width}x{Screen.height}");
+            response.AddOutput("isPlaying", Application.isPlaying.ToString());
+
+            var target = NguiRaycast(screenPos);
+            if (target == null)
             {
-                throw new InvalidOperationException("No camera found for coordinate click.");
+                target = PhysicsPick(parameters, response);
             }
 
-            var cameraNames = Resources.FindObjectsOfTypeAll<Camera>()
-                .Where(x => !EditorUtility.IsPersistent(x))
-                .Select(x => x.name);
-            response.AddOutput("camera", camera.name);
-            response.AddOutput("cameras", string.Join(",", cameraNames));
-
-            var viewportX = Mathf.Clamp01(parameters.pointX);
-            var viewportY = Mathf.Clamp01(1f - parameters.pointY);
-            var ray = camera.ViewportPointToRay(new Vector3(viewportX, viewportY, 0f));
-            if (!Physics.Raycast(ray, out var hit, Mathf.Infinity))
+            if (target == null)
             {
                 response.success = false;
                 response.error = new CommandError
                 {
-                    message = $"No collider hit at normalized ({parameters.pointX}, {parameters.pointY})."
+                    message = $"No UI target hit at normalized ({parameters.pointX}, {parameters.pointY})."
                 };
                 return;
             }
 
-            var target = hit.collider.gameObject;
             if (!NotifyNgui(target, "OnClick", null))
             {
                 target.SendMessage("OnClick", null, SendMessageOptions.DontRequireReceiver);
@@ -287,8 +311,52 @@ namespace ProjectMQaMcp.Editor
 
             response.AddOutput("hitPath", GetHierarchyPath(target));
             response.AddOutput("hitName", target.name);
-            response.AddOutput("hitPoint", hit.point.ToString("F3"));
             response.AddOutput("clicked", "true");
+        }
+
+        private static GameObject NguiRaycast(Vector3 screenPos)
+        {
+            var uiCameraType = AppDomain.CurrentDomain.GetAssemblies()
+                .Select(assembly => assembly.GetType("UICamera"))
+                .FirstOrDefault(type => type != null);
+            var method = uiCameraType?.GetMethod("Raycast",
+                BindingFlags.Public | BindingFlags.Static,
+                null,
+                new[] { typeof(Vector3), typeof(GameObject).MakeByRefType() },
+                null);
+            if (method == null)
+            {
+                return null;
+            }
+
+            var args = new object[] { screenPos, null };
+            var hit = (bool)method.Invoke(null, args);
+            return hit ? args[1] as GameObject : null;
+        }
+
+        private static GameObject PhysicsPick(CommandParameters parameters, CommandResponse response)
+        {
+            var camera = FindCamera(parameters.cameraName);
+            if (camera == null)
+            {
+                return null;
+            }
+
+            response.AddOutput("fallbackCamera", camera.name);
+            var ray = camera.ViewportPointToRay(new Vector3(
+                Mathf.Clamp01(parameters.pointX),
+                Mathf.Clamp01(1f - parameters.pointY),
+                0f));
+            return Physics.Raycast(ray, out var hit, Mathf.Infinity)
+                ? hit.collider.gameObject
+                : null;
+        }
+
+        private static void SetPlayMode(bool play, CommandResponse response)
+        {
+            EditorApplication.isPlaying = play;
+            response.AddOutput("requestedPlaying", play.ToString());
+            response.AddOutput("isPlayingNow", EditorApplication.isPlaying.ToString());
         }
 
         private static Camera FindCamera(string cameraName)
