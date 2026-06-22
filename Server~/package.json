@@ -1,11 +1,11 @@
 {
-  "name": "projectm-qa-mcp-server",
+  "name": "nx3-unity-mcp-server",
   "version": "0.1.0",
   "description": "Bundled MCP server for ProjectM Unity QA automation.",
   "type": "module",
   "main": "build/index.js",
   "bin": {
-    "projectm-qa-mcp-server": "build/index.js"
+    "nx3-unity-mcp-server": "build/index.js"
   },
   "scripts": {
     "build": "tsc --noEmit && esbuild src/index.ts --bundle --platform=node --format=esm --target=node20 --outfile=build/index.js --banner:js=\"#!/usr/bin/env node\" --log-override:package.json=silent",

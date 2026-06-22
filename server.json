@@ -1,5 +1,5 @@
 {
-  "name": "projectm-qa-mcp",
+  "name": "nx3-unity-mcp",
   "command": "node",
   "args": [
     "Server~/build/index.js"

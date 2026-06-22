@@ -1,6 +1,6 @@
-# ProjectM QA MCP
+# NX3 Unity MCP
 
-ProjectM QA MCP is a Unity Package Manager package that installs a small
+NX3 Unity MCP is a Unity Package Manager package that installs a small
 Unity Editor command bridge and ships a bundled Node MCP server.
 
 The package is intentionally ProjectM-focused. It avoids the long-lived
@@ -21,7 +21,7 @@ You can also edit `Packages/manifest.json` directly:
 ```json
 {
   "dependencies": {
-    "com.nx3games.projectm.qa-mcp": "https://github.com/chdnl0420-svg/UnityMCP.git"
+    "com.nx3games.unity-mcp": "https://github.com/chdnl0420-svg/UnityMCP.git"
   }
 }
 ```
@@ -31,7 +31,7 @@ For local development, add this folder as a local package:
 ```json
 {
   "dependencies": {
-    "com.nx3games.projectm.qa-mcp": "file:D:/Project/UnityMCP"
+    "com.nx3games.unity-mcp": "file:D:/Project/UnityMCP"
   }
 }
 ```
@@ -42,12 +42,12 @@ Add a server entry to `C:\Users\NX3GAMES\.codex\config.toml`.
 Adjust the `args` path to the installed package location.
 
 ```toml
-[mcp_servers.projectm-qa-mcp]
+[mcp_servers.nx3-unity-mcp]
 command = "node"
 args = ['D:\Project\UnityMCP\Server~\build\index.js']
 startup_timeout_sec = 120
 
-[mcp_servers.projectm-qa-mcp.env]
+[mcp_servers.nx3-unity-mcp.env]
 PROJECTM_UNITY_PATH = 'C:\Program Files\Unity\Hub\Editor\2022.3.76f1\Editor\Unity.exe'
 PROJECTM_DEFAULT_PROJECT_PATH = 'C:\Project\CLIENT_KSH_ASIA_L\client\ProjectM'
 PROJECTM_COMMAND_ROOT = 'C:\Project\CLIENT_KSH_ASIA_L\client\ProjectM\.codex\unity-commands'

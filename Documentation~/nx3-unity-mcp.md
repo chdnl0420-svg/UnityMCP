@@ -1,4 +1,4 @@
-# ProjectM QA MCP Design
+# NX3 Unity MCP Design
 
 The bridge uses files instead of a long-lived socket.
 
