@@ -34,6 +34,7 @@ Supported MVP commands:
 - `find_ngui_object`
 - `click_ngui_object`
 - `click_at`
+- `click_ui_text`
 - `enter_play_mode`
 - `exit_play_mode`
 - `dump_ui`
@@ -44,8 +45,11 @@ The Node MCP server also exposes higher-level PlayMode helpers:
 
 - `unity_enter_play_mode`
 - `unity_exit_play_mode`
+- `unity_click_ui_text`
 
-These helpers call the bridge command first, then poll `editor_status` until
-the requested `isPlaying` state is observed.
+The PlayMode helpers call the bridge command first, then poll `editor_status`
+until the requested `isPlaying` state is observed. `unity_click_ui_text` finds a
+visible NGUI label by text and clicks the resolved clickable target, avoiding
+manual coordinate transfer from `dump_ui`.
 
 NGUI support is reflection-based. Projects without NGUI still compile.

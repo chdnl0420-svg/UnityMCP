@@ -134,6 +134,9 @@ namespace ProjectMQaMcp.Editor
                 case "click_at":
                     ClickAt(parameters, response);
                     break;
+                case "click_ui_text":
+                    ClickUiText(parameters, response);
+                    break;
                 case "enter_play_mode":
                     SetPlayMode(true, response);
                     break;
@@ -250,7 +253,10 @@ namespace ProjectMQaMcp.Editor
                     x = command.x,
                     y = command.y,
                     clickX = command.clickX,
-                    clickY = command.clickY
+                    clickY = command.clickY,
+                    text = command.text,
+                    labelText = command.labelText,
+                    targetText = command.targetText
                 }
             };
         }
@@ -433,6 +439,60 @@ namespace ProjectMQaMcp.Editor
             response.AddOutput("clicked", "true");
         }
 
+        private static void ClickUiText(CommandParameters parameters, CommandResponse response)
+        {
+            var text = ResolveText(parameters);
+            var label = FindLabelByText(text, parameters.includeInactive);
+            if (label == null)
+            {
+                response.success = false;
+                response.error = new CommandError
+                {
+                    message = $"UI text not found: {text}"
+                };
+                return;
+            }
+
+            var uiCamera = FindUiCamera();
+            if (uiCamera == null)
+            {
+                throw new InvalidOperationException("No camera found for UI text click.");
+            }
+
+            var labelScreen = uiCamera.WorldToScreenPoint(label.transform.position);
+            var target = FindClickableTarget(label, labelScreen);
+            if (target == null)
+            {
+                response.success = false;
+                response.error = new CommandError
+                {
+                    message = $"No clickable target found for UI text: {text}"
+                };
+                response.AddOutput("labelPath", GetHierarchyPath(label));
+                return;
+            }
+
+            var clickCollider = target.GetComponent<Collider>();
+            var clickWorld = clickCollider != null ? clickCollider.bounds.center : target.transform.position;
+            var clickScreen = uiCamera.WorldToScreenPoint(clickWorld);
+            var clickX = clickScreen.x / Screen.width;
+            var clickY = 1f - clickScreen.y / Screen.height;
+
+            if (!NotifyNgui(target, "OnClick", null))
+            {
+                target.SendMessage("OnClick", null, SendMessageOptions.DontRequireReceiver);
+                response.logs.Add($"{LogPrefix} UICamera.Notify not found; used SendMessage fallback.");
+            }
+
+            response.AddOutput("text", GetNguiLabelText(label));
+            response.AddOutput("labelPath", GetHierarchyPath(label));
+            response.AddOutput("hitPath", GetHierarchyPath(target));
+            response.AddOutput("hitName", target.name);
+            response.AddOutput("screenPos", $"{clickScreen.x:F1},{clickScreen.y:F1}");
+            response.AddOutput("normalizedPos", $"{clickX:F3},{clickY:F3}");
+            response.AddOutput("clicked", "true");
+        }
+
         private static GameObject NguiRaycast(Vector3 screenPos)
         {
             var uiCameraType = AppDomain.CurrentDomain.GetAssemblies()
@@ -579,6 +639,29 @@ namespace ProjectMQaMcp.Editor
             return ancestor != null ? ancestor.gameObject : null;
         }
 
+        private static GameObject FindLabelByText(string text, bool includeInactive)
+        {
+            var labels = Resources.FindObjectsOfTypeAll<GameObject>()
+                .Where(x => !EditorUtility.IsPersistent(x))
+                .Where(x => includeInactive || x.activeInHierarchy)
+                .Select(x => new
+                {
+                    Object = x,
+                    Text = GetNguiLabelText(x)
+                })
+                .Where(x => !string.IsNullOrEmpty(x.Text))
+                .ToArray();
+
+            var exact = labels.FirstOrDefault(x => string.Equals(x.Text, text, StringComparison.OrdinalIgnoreCase));
+            if (exact != null)
+            {
+                return exact.Object;
+            }
+
+            var contains = labels.FirstOrDefault(x => x.Text.IndexOf(text, StringComparison.OrdinalIgnoreCase) >= 0);
+            return contains?.Object;
+        }
+
         private static Collider FindClickableAncestor(GameObject go)
         {
             var current = go.transform.parent;
@@ -662,6 +745,21 @@ namespace ProjectMQaMcp.Editor
             }
 
             return null;
+        }
+
+        private static string ResolveText(CommandParameters parameters)
+        {
+            if (!string.IsNullOrEmpty(parameters.text))
+            {
+                return parameters.text;
+            }
+
+            if (!string.IsNullOrEmpty(parameters.labelText))
+            {
+                return parameters.labelText;
+            }
+
+            return Require(parameters.targetText, "text");
         }
 
         private static bool NotifyNgui(GameObject target, string functionName, object value)
@@ -772,6 +870,9 @@ namespace ProjectMQaMcp.Editor
         public float y;
         public float clickX;
         public float clickY;
+        public string text;
+        public string labelText;
+        public string targetText;
         public List<BatchCommand> commands;
     }
 
@@ -795,6 +896,9 @@ namespace ProjectMQaMcp.Editor
         public float y;
         public float clickX;
         public float clickY;
+        public string text;
+        public string labelText;
+        public string targetText;
     }
 
     [Serializable]

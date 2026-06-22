@@ -76,6 +76,8 @@ Editor commands must write response JSON with `success`, `command`,
 `unity_enter_play_mode` and `unity_exit_play_mode` must wait for
 `editor_status` to report the requested `isPlaying` value before returning
 success.
+`unity_click_ui_text` must resolve a visible NGUI label to its clickable target
+instead of requiring manual `dump_ui` coordinate transfer.
 Test tools parse Unity Test Framework XML and expose failure counts.
 Screenshot tools verify that a PNG exists and has non-zero size.
 

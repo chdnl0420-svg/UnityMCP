@@ -21603,6 +21603,13 @@ function registerTools(server2) {
     timeoutMs: timeoutSchema,
     runOnce: external_exports.boolean().optional()
   }, async (params) => toToolResult(await unityCaptureScreenshot(params)));
+  server2.tool("unity_click_ui_text", "Finds a visible NGUI label by text and clicks its resolved clickable target.", {
+    ...baseConfigShape,
+    text: external_exports.string().min(1),
+    includeInactive: external_exports.boolean().optional(),
+    timeoutMs: timeoutSchema,
+    runOnce: external_exports.boolean().optional()
+  }, async (params) => toToolResult(await unityClickUiText(params)));
   server2.tool("unity_enter_play_mode", "Requests Unity PlayMode and waits until editor_status reports isPlaying=true.", {
     ...baseConfigShape,
     timeoutMs: timeoutSchema,
@@ -21728,6 +21735,21 @@ async function unityCaptureScreenshot(params) {
       pngBytes: bytes
     }
   };
+}
+async function unityClickUiText(params) {
+  const config2 = resolveProjectConfig(params);
+  return executeEditorCommand({
+    unityPath: config2.unityPath,
+    projectPath: config2.projectPath,
+    commandRoot: config2.commandRoot,
+    command: "click_ui_text",
+    parameters: {
+      text: params.text,
+      includeInactive: params.includeInactive ?? false
+    },
+    timeoutMs: params.timeoutMs ?? 15e3,
+    runOnce: params.runOnce ?? false
+  });
 }
 async function unitySetPlayMode(params, targetPlaying) {
   const config2 = resolveProjectConfig(params);

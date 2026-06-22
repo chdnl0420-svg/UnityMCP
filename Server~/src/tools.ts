@@ -65,6 +65,14 @@ export function registerTools(server: McpServer): void {
     runOnce: z.boolean().optional(),
   }, async (params) => toToolResult(await unityCaptureScreenshot(params)));
 
+  server.tool('unity_click_ui_text', 'Finds a visible NGUI label by text and clicks its resolved clickable target.', {
+    ...baseConfigShape,
+    text: z.string().min(1),
+    includeInactive: z.boolean().optional(),
+    timeoutMs: timeoutSchema,
+    runOnce: z.boolean().optional(),
+  }, async (params) => toToolResult(await unityClickUiText(params)));
+
   server.tool('unity_enter_play_mode', 'Requests Unity PlayMode and waits until editor_status reports isPlaying=true.', {
     ...baseConfigShape,
     timeoutMs: timeoutSchema,
@@ -201,6 +209,22 @@ async function unityCaptureScreenshot(params: any): Promise<unknown> {
       pngBytes: bytes,
     },
   };
+}
+
+async function unityClickUiText(params: any): Promise<unknown> {
+  const config = resolveProjectConfig(params);
+  return executeEditorCommand({
+    unityPath: config.unityPath,
+    projectPath: config.projectPath,
+    commandRoot: config.commandRoot,
+    command: 'click_ui_text',
+    parameters: {
+      text: params.text,
+      includeInactive: params.includeInactive ?? false,
+    },
+    timeoutMs: params.timeoutMs ?? 15000,
+    runOnce: params.runOnce ?? false,
+  });
 }
 
 async function unitySetPlayMode(params: any, targetPlaying: boolean): Promise<unknown> {
