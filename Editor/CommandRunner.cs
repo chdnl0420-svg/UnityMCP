@@ -167,24 +167,26 @@ namespace ProjectMQaMcp.Editor
                 throw new ArgumentException("batch requires a non-empty commands array.");
             }
 
-            response.steps = new List<CommandResponse>();
+            response.steps = new List<CommandStepResponse>();
             var index = 0;
             foreach (var sub in parameters.commands)
             {
+                var subRequest = ToCommandRequest(sub, index);
+                var stepStopwatch = Stopwatch.StartNew();
                 var stepResponse = new CommandResponse
                 {
-                    id = string.IsNullOrEmpty(sub.id) ? $"step{index}" : sub.id,
-                    command = sub.command
+                    id = subRequest.id,
+                    command = subRequest.command
                 };
 
                 try
                 {
-                    if (string.IsNullOrEmpty(sub.command))
+                    if (string.IsNullOrEmpty(subRequest.command))
                     {
                         throw new InvalidOperationException("batch step is missing a command.");
                     }
 
-                    Execute(sub, stepResponse);
+                    Execute(subRequest, stepResponse);
                     if (stepResponse.error == null && !stepResponse.success)
                     {
                         stepResponse.success = true;
@@ -199,12 +201,59 @@ namespace ProjectMQaMcp.Editor
                         details = e.ToString()
                     };
                 }
+                finally
+                {
+                    stepStopwatch.Stop();
+                    stepResponse.elapsedMs = stepStopwatch.ElapsedMilliseconds;
+                }
 
-                response.steps.Add(stepResponse);
+                response.steps.Add(ToStepResponse(stepResponse));
                 index++;
             }
 
             response.AddOutput("stepCount", response.steps.Count.ToString());
+        }
+
+        private static CommandRequest ToCommandRequest(BatchCommand command, int index)
+        {
+            if (command == null)
+            {
+                throw new InvalidOperationException($"batch step {index} is missing.");
+            }
+
+            return new CommandRequest
+            {
+                id = string.IsNullOrEmpty(command.id) ? $"step{index}" : command.id,
+                command = command.command,
+                parameters = new CommandParameters
+                {
+                    outputPath = command.outputPath,
+                    cameraName = command.cameraName,
+                    width = command.width,
+                    height = command.height,
+                    scenePath = command.scenePath,
+                    prefabPath = command.prefabPath,
+                    targetName = command.targetName,
+                    targetPath = command.targetPath,
+                    includeInactive = command.includeInactive,
+                    pointX = command.pointX,
+                    pointY = command.pointY
+                }
+            };
+        }
+
+        private static CommandStepResponse ToStepResponse(CommandResponse response)
+        {
+            return new CommandStepResponse
+            {
+                id = response.id,
+                command = response.command,
+                success = response.success,
+                elapsedMs = response.elapsedMs,
+                logs = response.logs,
+                outputs = response.outputs,
+                error = response.error
+            };
         }
 
         private static void CaptureScreenshot(CommandParameters parameters, CommandResponse response)
@@ -622,7 +671,37 @@ namespace ProjectMQaMcp.Editor
         public bool includeInactive;
         public float pointX;
         public float pointY;
-        public List<CommandRequest> commands;
+        public List<BatchCommand> commands;
+    }
+
+    [Serializable]
+    public sealed class BatchCommand
+    {
+        public string id;
+        public string command;
+        public string outputPath;
+        public string cameraName;
+        public int width;
+        public int height;
+        public string scenePath;
+        public string prefabPath;
+        public string targetName;
+        public string targetPath;
+        public bool includeInactive;
+        public float pointX;
+        public float pointY;
+    }
+
+    [Serializable]
+    public sealed class CommandStepResponse
+    {
+        public string id;
+        public string command;
+        public bool success;
+        public long elapsedMs;
+        public List<string> logs = new List<string>();
+        public List<OutputEntry> outputs = new List<OutputEntry>();
+        public CommandError error;
     }
 
     [Serializable]
@@ -635,7 +714,7 @@ namespace ProjectMQaMcp.Editor
         public List<string> logs = new List<string>();
         public List<OutputEntry> outputs = new List<OutputEntry>();
         public CommandError error;
-        public List<CommandResponse> steps;
+        public List<CommandStepResponse> steps;
 
         public void AddOutput(string key, string value)
         {
