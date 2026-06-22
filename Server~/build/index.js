@@ -21686,6 +21686,63 @@ function defaultDelay2(ms) {
 
 // src/qaFlow.ts
 import { join as join4 } from "node:path";
+
+// src/screenshot.ts
+function verifyScreenshotResponse(options) {
+  const outputs = normalizeOutputs(options.response.outputs);
+  const actualWidth = readNumberOutput(outputs.width);
+  const actualHeight = readNumberOutput(outputs.height);
+  const hasRequestedSize = options.requestedWidth !== void 0 && options.requestedHeight !== void 0;
+  const hasActualSize = actualWidth !== void 0 && actualHeight !== void 0;
+  const matchesRequestedSize = hasRequestedSize && hasActualSize ? actualWidth === options.requestedWidth && actualHeight === options.requestedHeight : void 0;
+  const sizeMismatch = options.requireRequestedSize === true && matchesRequestedSize !== true;
+  const emptyPng = options.pngBytes <= 0;
+  return {
+    ...options.response,
+    success: options.response.success && !emptyPng && !sizeMismatch,
+    outputs: {
+      ...outputs,
+      outputPath: options.outputPath,
+      pngExists: options.pngBytes > 0,
+      pngBytes: options.pngBytes,
+      requestedWidth: options.requestedWidth,
+      requestedHeight: options.requestedHeight,
+      actualWidth,
+      actualHeight,
+      matchesRequestedSize,
+      requireRequestedSize: options.requireRequestedSize ?? false
+    },
+    error: makeScreenshotError(options.response, options.outputPath, emptyPng, sizeMismatch, options)
+  };
+}
+function makeScreenshotError(response, outputPath, emptyPng, sizeMismatch, options) {
+  if (!response.success) {
+    return response.error;
+  }
+  if (emptyPng) {
+    return {
+      message: `Screenshot PNG was not created or is empty: ${outputPath}`
+    };
+  }
+  if (sizeMismatch) {
+    return {
+      message: `Screenshot size did not match requested ${options.requestedWidth}x${options.requestedHeight}`
+    };
+  }
+  return response.error;
+}
+function readNumberOutput(value) {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return value;
+  }
+  if (typeof value === "string") {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : void 0;
+  }
+  return void 0;
+}
+
+// src/qaFlow.ts
 async function runUiTextQaFlow(options) {
   const now = options.now ?? (() => Date.now());
   const pollIntervalMs = options.pollIntervalMs ?? 500;
@@ -21743,7 +21800,7 @@ async function runUiTextQaFlow(options) {
       width: options.width ?? 1280,
       height: options.height ?? 720
     }, commandTimeoutMs);
-    return verifyPngCapture(response, beforePath, getFileSize);
+    return verifyPngCapture(response, beforePath, getFileSize, options.width, options.height, options.requireRequestedSize);
   }, () => beforePath);
   result.beforeCapture = beforeCapture;
   if (!beforeCapture.success) {
@@ -21773,7 +21830,7 @@ async function runUiTextQaFlow(options) {
       width: options.width ?? 1280,
       height: options.height ?? 720
     }, commandTimeoutMs);
-    return verifyPngCapture(response, afterPath, getFileSize);
+    return verifyPngCapture(response, afterPath, getFileSize, options.width, options.height, options.requireRequestedSize);
   }, () => afterPath);
   result.afterCapture = afterCapture;
   if (!afterCapture.success) {
@@ -21800,19 +21857,16 @@ async function runUiTextQaFlow(options) {
   result.elapsedMs = now() - startedAt;
   return result;
 }
-async function verifyPngCapture(response, outputPath, getFileSize) {
+async function verifyPngCapture(response, outputPath, getFileSize, requestedWidth, requestedHeight, requireRequestedSize) {
   const pngBytes = await getFileSize(outputPath);
-  return {
-    ...response,
-    success: response.success && pngBytes > 0,
-    outputs: {
-      ...normalizeOutputs(response.outputs),
-      outputPath,
-      pngExists: pngBytes > 0,
-      pngBytes
-    },
-    error: response.success && pngBytes <= 0 ? { message: `Screenshot PNG was not created or is empty: ${outputPath}` } : response.error
-  };
+  return verifyScreenshotResponse({
+    response,
+    outputPath,
+    pngBytes,
+    requestedWidth,
+    requestedHeight,
+    requireRequestedSize
+  });
 }
 async function recordStep(steps, name, now, action, detail) {
   const startedAt = now();
@@ -21880,6 +21934,7 @@ function registerTools(server2) {
     cameraName: external_exports.string().optional(),
     width: external_exports.number().int().positive().max(8192).optional(),
     height: external_exports.number().int().positive().max(8192).optional(),
+    requireRequestedSize: external_exports.boolean().optional(),
     timeoutMs: timeoutSchema,
     runOnce: external_exports.boolean().optional()
   }, async (params) => toToolResult(await unityCaptureScreenshot(params)));
@@ -21919,6 +21974,7 @@ function registerTools(server2) {
     pollIntervalMs: external_exports.number().int().positive().max(1e4).optional(),
     width: external_exports.number().int().positive().max(8192).optional(),
     height: external_exports.number().int().positive().max(8192).optional(),
+    requireRequestedSize: external_exports.boolean().optional(),
     exitPlayMode: external_exports.boolean().optional()
   }, async (params) => toToolResult(await unityRunUiTextQaFlow(params)));
   server2.tool("unity_enter_play_mode", "Requests Unity PlayMode and waits until editor_status reports isPlaying=true.", {
@@ -22036,16 +22092,14 @@ async function unityCaptureScreenshot(params) {
     runOnce: params.runOnce ?? false
   });
   const bytes = await fileSize(outputPath);
-  return {
-    ...response,
-    success: response.success && bytes > 0,
-    outputs: {
-      ...normalizeOutputs(response.outputs),
-      outputPath,
-      pngExists: await pathExists(outputPath),
-      pngBytes: bytes
-    }
-  };
+  return verifyScreenshotResponse({
+    response,
+    outputPath,
+    pngBytes: bytes,
+    requestedWidth: params.width ?? 1280,
+    requestedHeight: params.height ?? 720,
+    requireRequestedSize: params.requireRequestedSize ?? false
+  });
 }
 async function unityClickUiText(params) {
   const config2 = resolveProjectConfig(params);
@@ -22098,6 +22152,7 @@ async function unityRunUiTextQaFlow(params) {
     commandTimeoutMs: Math.min(params.timeoutMs ?? 15e3, 15e3),
     width: params.width ?? 1280,
     height: params.height ?? 720,
+    requireRequestedSize: params.requireRequestedSize ?? false,
     exitPlayMode: params.exitPlayMode ?? true,
     execute: (command, parameters, timeoutMs) => executeEditorCommand({
       unityPath: config2.unityPath,

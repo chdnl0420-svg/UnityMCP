@@ -12,6 +12,7 @@ import { findStaleCandidates, killProcess, listUnityRelatedProcesses } from './p
 import { normalizeOutputs, setPlayModeAndWait } from './playMode.js';
 import { clickUiTextAndWait, waitForUiText } from './uiText.js';
 import { runUiTextQaFlow } from './qaFlow.js';
+import { verifyScreenshotResponse } from './screenshot.js';
 
 const baseConfigShape = {
   unityPath: z.string().optional(),
@@ -63,6 +64,7 @@ export function registerTools(server: McpServer): void {
     cameraName: z.string().optional(),
     width: z.number().int().positive().max(8192).optional(),
     height: z.number().int().positive().max(8192).optional(),
+    requireRequestedSize: z.boolean().optional(),
     timeoutMs: timeoutSchema,
     runOnce: z.boolean().optional(),
   }, async (params) => toToolResult(await unityCaptureScreenshot(params)));
@@ -106,6 +108,7 @@ export function registerTools(server: McpServer): void {
     pollIntervalMs: z.number().int().positive().max(10000).optional(),
     width: z.number().int().positive().max(8192).optional(),
     height: z.number().int().positive().max(8192).optional(),
+    requireRequestedSize: z.boolean().optional(),
     exitPlayMode: z.boolean().optional(),
   }, async (params) => toToolResult(await unityRunUiTextQaFlow(params)));
 
@@ -235,16 +238,14 @@ async function unityCaptureScreenshot(params: any): Promise<unknown> {
   });
   const bytes = await fileSize(outputPath);
 
-  return {
-    ...response,
-    success: response.success && bytes > 0,
-    outputs: {
-      ...normalizeOutputs(response.outputs),
-      outputPath,
-      pngExists: await pathExists(outputPath),
-      pngBytes: bytes,
-    },
-  };
+  return verifyScreenshotResponse({
+    response,
+    outputPath,
+    pngBytes: bytes,
+    requestedWidth: params.width ?? 1280,
+    requestedHeight: params.height ?? 720,
+    requireRequestedSize: params.requireRequestedSize ?? false,
+  });
 }
 
 async function unityClickUiText(params: any): Promise<unknown> {
@@ -300,6 +301,7 @@ async function unityRunUiTextQaFlow(params: any): Promise<unknown> {
     commandTimeoutMs: Math.min(params.timeoutMs ?? 15000, 15000),
     width: params.width ?? 1280,
     height: params.height ?? 720,
+    requireRequestedSize: params.requireRequestedSize ?? false,
     exitPlayMode: params.exitPlayMode ?? true,
     execute: (command, parameters, timeoutMs) => executeEditorCommand({
       unityPath: config.unityPath,

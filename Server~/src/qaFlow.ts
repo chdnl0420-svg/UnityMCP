@@ -1,8 +1,9 @@
 import { join } from 'node:path';
 import { EditorCommandResponse } from './commandBridge.js';
-import { PlayModeWaitResult, normalizeOutputs, setPlayModeAndWait } from './playMode.js';
+import { PlayModeWaitResult, setPlayModeAndWait } from './playMode.js';
 import { ClickUiTextAndWaitResult, WaitUiTextResult, clickUiTextAndWait, waitForUiText } from './uiText.js';
 import { fileSize } from './utils/files.js';
+import { verifyScreenshotResponse } from './screenshot.js';
 
 export interface UiTextQaFlowOptions {
   initialText: string;
@@ -16,6 +17,7 @@ export interface UiTextQaFlowOptions {
   commandTimeoutMs?: number;
   width?: number;
   height?: number;
+  requireRequestedSize?: boolean;
   exitPlayMode?: boolean;
   execute: (command: string, parameters: Record<string, unknown>, timeoutMs: number) => Promise<EditorCommandResponse>;
   delay?: (ms: number) => Promise<void>;
@@ -110,7 +112,7 @@ export async function runUiTextQaFlow(options: UiTextQaFlowOptions): Promise<UiT
       width: options.width ?? 1280,
       height: options.height ?? 720,
     }, commandTimeoutMs);
-    return verifyPngCapture(response, beforePath, getFileSize);
+    return verifyPngCapture(response, beforePath, getFileSize, options.width, options.height, options.requireRequestedSize);
   }, () => beforePath);
   result.beforeCapture = beforeCapture;
   if (!beforeCapture.success) {
@@ -142,7 +144,7 @@ export async function runUiTextQaFlow(options: UiTextQaFlowOptions): Promise<UiT
       width: options.width ?? 1280,
       height: options.height ?? 720,
     }, commandTimeoutMs);
-    return verifyPngCapture(response, afterPath, getFileSize);
+    return verifyPngCapture(response, afterPath, getFileSize, options.width, options.height, options.requireRequestedSize);
   }, () => afterPath);
   result.afterCapture = afterCapture;
   if (!afterCapture.success) {
@@ -176,21 +178,19 @@ async function verifyPngCapture(
   response: EditorCommandResponse,
   outputPath: string,
   getFileSize: (filePath: string) => Promise<number>,
+  requestedWidth?: number,
+  requestedHeight?: number,
+  requireRequestedSize?: boolean,
 ): Promise<EditorCommandResponse> {
   const pngBytes = await getFileSize(outputPath);
-  return {
-    ...response,
-    success: response.success && pngBytes > 0,
-    outputs: {
-      ...normalizeOutputs(response.outputs),
-      outputPath,
-      pngExists: pngBytes > 0,
-      pngBytes,
-    },
-    error: response.success && pngBytes <= 0
-      ? { message: `Screenshot PNG was not created or is empty: ${outputPath}` }
-      : response.error,
-  };
+  return verifyScreenshotResponse({
+    response,
+    outputPath,
+    pngBytes,
+    requestedWidth,
+    requestedHeight,
+    requireRequestedSize,
+  });
 }
 
 async function recordStep<T extends { success: boolean }>(

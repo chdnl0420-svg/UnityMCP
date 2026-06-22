@@ -61,5 +61,7 @@ text wait into one QA step.
 enter PlayMode, wait for initial text, capture before, click text, wait for
 expected text, capture after, then optionally exit PlayMode. The response keeps
 per-step success and elapsed time so a single failed phase is visible.
+Screenshot helpers include requested versus actual dimensions and can fail on a
+dimension mismatch when `requireRequestedSize` is set.
 
 NGUI support is reflection-based. Projects without NGUI still compile.

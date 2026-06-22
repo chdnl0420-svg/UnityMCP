@@ -87,6 +87,9 @@ before/after screenshots, click text, wait for expected text, and return every
 step in one response.
 Test tools parse Unity Test Framework XML and expose failure counts.
 Screenshot tools verify that a PNG exists and has non-zero size.
+Screenshot responses also report requested dimensions, actual dimensions, and
+`matchesRequestedSize`; set `requireRequestedSize=true` when dimension mismatch
+should fail the tool call.
 
 ## Recovery Notes
 
