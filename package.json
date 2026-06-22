@@ -1,7 +1,7 @@
 {
   "name": "com.nx3games.unity-mcp",
   "displayName": "NX3 Unity MCP",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "unity": "2022.3",
   "description": "ProjectM-focused Unity QA MCP package with a file-based editor command bridge and bundled Node MCP server.",
   "author": {

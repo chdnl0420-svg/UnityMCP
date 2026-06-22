@@ -143,6 +143,9 @@ namespace ProjectMQaMcp.Editor
                 case "dump_ui":
                     DumpUi(parameters, response);
                     break;
+                case "batch":
+                    BatchExecute(parameters, response);
+                    break;
                 default:
                     throw new NotSupportedException($"Unsupported command: {request.command}");
             }
@@ -153,7 +156,55 @@ namespace ProjectMQaMcp.Editor
             response.AddOutput("projectPath", Application.dataPath.Replace("/Assets", ""));
             response.AddOutput("unityVersion", Application.unityVersion);
             response.AddOutput("isBatchMode", Application.isBatchMode.ToString());
+            response.AddOutput("isPlaying", Application.isPlaying.ToString());
             response.AddOutput("activeScene", EditorSceneManager.GetActiveScene().path);
+        }
+
+        private static void BatchExecute(CommandParameters parameters, CommandResponse response)
+        {
+            if (parameters.commands == null || parameters.commands.Count == 0)
+            {
+                throw new ArgumentException("batch requires a non-empty commands array.");
+            }
+
+            response.steps = new List<CommandResponse>();
+            var index = 0;
+            foreach (var sub in parameters.commands)
+            {
+                var stepResponse = new CommandResponse
+                {
+                    id = string.IsNullOrEmpty(sub.id) ? $"step{index}" : sub.id,
+                    command = sub.command
+                };
+
+                try
+                {
+                    if (string.IsNullOrEmpty(sub.command))
+                    {
+                        throw new InvalidOperationException("batch step is missing a command.");
+                    }
+
+                    Execute(sub, stepResponse);
+                    if (stepResponse.error == null && !stepResponse.success)
+                    {
+                        stepResponse.success = true;
+                    }
+                }
+                catch (Exception e)
+                {
+                    stepResponse.success = false;
+                    stepResponse.error = new CommandError
+                    {
+                        message = e.Message,
+                        details = e.ToString()
+                    };
+                }
+
+                response.steps.Add(stepResponse);
+                index++;
+            }
+
+            response.AddOutput("stepCount", response.steps.Count.ToString());
         }
 
         private static void CaptureScreenshot(CommandParameters parameters, CommandResponse response)
@@ -571,6 +622,7 @@ namespace ProjectMQaMcp.Editor
         public bool includeInactive;
         public float pointX;
         public float pointY;
+        public List<CommandRequest> commands;
     }
 
     [Serializable]
@@ -583,6 +635,7 @@ namespace ProjectMQaMcp.Editor
         public List<string> logs = new List<string>();
         public List<OutputEntry> outputs = new List<OutputEntry>();
         public CommandError error;
+        public List<CommandResponse> steps;
 
         public void AddOutput(string key, string value)
         {
