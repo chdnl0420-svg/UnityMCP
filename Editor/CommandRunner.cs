@@ -146,6 +146,9 @@ namespace ProjectMQaMcp.Editor
                 case "batch":
                     BatchExecute(parameters, response);
                     break;
+                case "resolve_packages":
+                    ResolvePackages(response);
+                    break;
                 default:
                     throw new NotSupportedException($"Unsupported command: {request.command}");
             }
@@ -212,6 +215,12 @@ namespace ProjectMQaMcp.Editor
             }
 
             response.AddOutput("stepCount", response.steps.Count.ToString());
+        }
+
+        private static void ResolvePackages(CommandResponse response)
+        {
+            UnityEditor.PackageManager.Client.Resolve();
+            response.AddOutput("requestedResolve", "true");
         }
 
         private static CommandRequest ToCommandRequest(BatchCommand command, int index)
