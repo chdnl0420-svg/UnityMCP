@@ -246,7 +246,11 @@ namespace ProjectMQaMcp.Editor
                     targetPath = command.targetPath,
                     includeInactive = command.includeInactive,
                     pointX = command.pointX,
-                    pointY = command.pointY
+                    pointY = command.pointY,
+                    x = command.x,
+                    y = command.y,
+                    clickX = command.clickX,
+                    clickY = command.clickY
                 }
             };
         }
@@ -392,17 +396,20 @@ namespace ProjectMQaMcp.Editor
 
         private static void ClickAt(CommandParameters parameters, CommandResponse response)
         {
-            var screenX = Mathf.Clamp01(parameters.pointX) * Screen.width;
-            var screenY = (1f - Mathf.Clamp01(parameters.pointY)) * Screen.height;
+            var pointX = ResolvePointX(parameters);
+            var pointY = ResolvePointY(parameters);
+            var screenX = Mathf.Clamp01(pointX) * Screen.width;
+            var screenY = (1f - Mathf.Clamp01(pointY)) * Screen.height;
             var screenPos = new Vector3(screenX, screenY, 0f);
             response.AddOutput("screenPos", $"{screenX:F1},{screenY:F1}");
+            response.AddOutput("normalizedPos", $"{pointX:F3},{pointY:F3}");
             response.AddOutput("screenSize", $"{Screen.width}x{Screen.height}");
             response.AddOutput("isPlaying", Application.isPlaying.ToString());
 
             var target = NguiRaycast(screenPos);
             if (target == null)
             {
-                target = PhysicsPick(parameters, response);
+                target = PhysicsPick(parameters, response, pointX, pointY);
             }
 
             if (target == null)
@@ -410,7 +417,7 @@ namespace ProjectMQaMcp.Editor
                 response.success = false;
                 response.error = new CommandError
                 {
-                    message = $"No UI target hit at normalized ({parameters.pointX}, {parameters.pointY})."
+                    message = $"No UI target hit at normalized ({pointX}, {pointY})."
                 };
                 return;
             }
@@ -446,7 +453,10 @@ namespace ProjectMQaMcp.Editor
             return hit ? args[1] as GameObject : null;
         }
 
-        private static GameObject PhysicsPick(CommandParameters parameters, CommandResponse response)
+        private static GameObject PhysicsPick(CommandParameters parameters,
+            CommandResponse response,
+            float pointX,
+            float pointY)
         {
             var camera = FindCamera(parameters.cameraName);
             if (camera == null)
@@ -456,12 +466,42 @@ namespace ProjectMQaMcp.Editor
 
             response.AddOutput("fallbackCamera", camera.name);
             var ray = camera.ViewportPointToRay(new Vector3(
-                Mathf.Clamp01(parameters.pointX),
-                Mathf.Clamp01(1f - parameters.pointY),
+                Mathf.Clamp01(pointX),
+                Mathf.Clamp01(1f - pointY),
                 0f));
             return Physics.Raycast(ray, out var hit, Mathf.Infinity)
                 ? hit.collider.gameObject
                 : null;
+        }
+
+        private static float ResolvePointX(CommandParameters parameters)
+        {
+            if (parameters.pointX != 0f)
+            {
+                return parameters.pointX;
+            }
+
+            if (parameters.x != 0f)
+            {
+                return parameters.x;
+            }
+
+            return parameters.clickX;
+        }
+
+        private static float ResolvePointY(CommandParameters parameters)
+        {
+            if (parameters.pointY != 0f)
+            {
+                return parameters.pointY;
+            }
+
+            if (parameters.y != 0f)
+            {
+                return parameters.y;
+            }
+
+            return parameters.clickY;
         }
 
         private static void SetPlayMode(bool play, CommandResponse response)
@@ -728,6 +768,10 @@ namespace ProjectMQaMcp.Editor
         public bool includeInactive;
         public float pointX;
         public float pointY;
+        public float x;
+        public float y;
+        public float clickX;
+        public float clickY;
         public List<BatchCommand> commands;
     }
 
@@ -747,6 +791,10 @@ namespace ProjectMQaMcp.Editor
         public bool includeInactive;
         public float pointX;
         public float pointY;
+        public float x;
+        public float y;
+        public float clickX;
+        public float clickY;
     }
 
     [Serializable]
