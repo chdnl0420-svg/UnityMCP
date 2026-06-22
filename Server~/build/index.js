@@ -21102,7 +21102,7 @@ var StdioServerTransport = class {
 
 // src/tools.ts
 import { readFile as readFile3 } from "node:fs/promises";
-import { join as join4 } from "node:path";
+import { join as join5 } from "node:path";
 import { createConnection } from "node:net";
 
 // src/config.ts
@@ -21581,12 +21581,12 @@ async function clickUiTextAndWait(options) {
       }
     };
   }
-  const remainingMs = Math.max(0, options.timeoutMs - (now() - startedAt));
+  const remainingMs2 = Math.max(0, options.timeoutMs - (now() - startedAt));
   const waitResult = await waitForUiText({
     text: options.waitText,
     exact,
     includeInactive: options.includeInactive,
-    timeoutMs: remainingMs,
+    timeoutMs: remainingMs2,
     pollIntervalMs: options.pollIntervalMs,
     commandTimeoutMs,
     execute: options.execute,
@@ -21684,6 +21684,159 @@ function defaultDelay2(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+// src/qaFlow.ts
+import { join as join4 } from "node:path";
+async function runUiTextQaFlow(options) {
+  const now = options.now ?? (() => Date.now());
+  const pollIntervalMs = options.pollIntervalMs ?? 500;
+  const commandTimeoutMs = options.commandTimeoutMs ?? 15e3;
+  const exact = options.exact ?? true;
+  const getFileSize = options.getFileSize ?? fileSize;
+  const startedAt = now();
+  const steps = [];
+  const beforePath = join4(options.outputRoot, "before.png");
+  const afterPath = join4(options.outputRoot, "after.png");
+  const result = {
+    success: false,
+    elapsedMs: 0,
+    steps,
+    screenshots: {
+      before: beforePath,
+      after: afterPath
+    }
+  };
+  const enter = await recordStep(steps, "enter_play_mode", now, async () => {
+    return setPlayModeAndWait({
+      targetPlaying: true,
+      timeoutMs: remainingMs(options.timeoutMs, startedAt, now),
+      pollIntervalMs,
+      commandTimeoutMs,
+      execute: options.execute,
+      delay: options.delay,
+      now
+    });
+  }, (value) => value.isPlaying === true ? "isPlaying=true" : void 0);
+  result.enter = enter;
+  if (!enter.success) {
+    return finishFailure(result, startedAt, now, enter.error?.message ?? "Failed to enter PlayMode");
+  }
+  const initialWait = await recordStep(steps, "wait_initial_text", now, async () => {
+    return waitForUiText({
+      text: options.initialText,
+      exact,
+      includeInactive: options.includeInactive,
+      timeoutMs: remainingMs(options.timeoutMs, startedAt, now),
+      pollIntervalMs,
+      commandTimeoutMs,
+      execute: options.execute,
+      delay: options.delay,
+      now
+    });
+  }, (value) => value.matchedLine);
+  result.initialWait = initialWait;
+  if (!initialWait.success) {
+    return finishFailure(result, startedAt, now, initialWait.error?.message ?? `Initial text not found: ${options.initialText}`);
+  }
+  const beforeCapture = await recordStep(steps, "capture_before", now, async () => {
+    const response = await options.execute("capture_screenshot", {
+      outputPath: beforePath,
+      width: options.width ?? 1280,
+      height: options.height ?? 720
+    }, commandTimeoutMs);
+    return verifyPngCapture(response, beforePath, getFileSize);
+  }, () => beforePath);
+  result.beforeCapture = beforeCapture;
+  if (!beforeCapture.success) {
+    return finishFailure(result, startedAt, now, beforeCapture.error?.message ?? "Failed to capture before screenshot");
+  }
+  const action = await recordStep(steps, "click_and_wait", now, async () => {
+    return clickUiTextAndWait({
+      clickText: options.clickText,
+      waitText: options.expectedText,
+      exact,
+      includeInactive: options.includeInactive,
+      timeoutMs: remainingMs(options.timeoutMs, startedAt, now),
+      pollIntervalMs,
+      commandTimeoutMs,
+      execute: options.execute,
+      delay: options.delay,
+      now
+    });
+  }, (value) => value.matchedLine);
+  result.action = action;
+  if (!action.success) {
+    return finishFailure(result, startedAt, now, action.error?.message ?? `Expected text not found: ${options.expectedText}`);
+  }
+  const afterCapture = await recordStep(steps, "capture_after", now, async () => {
+    const response = await options.execute("capture_screenshot", {
+      outputPath: afterPath,
+      width: options.width ?? 1280,
+      height: options.height ?? 720
+    }, commandTimeoutMs);
+    return verifyPngCapture(response, afterPath, getFileSize);
+  }, () => afterPath);
+  result.afterCapture = afterCapture;
+  if (!afterCapture.success) {
+    return finishFailure(result, startedAt, now, afterCapture.error?.message ?? "Failed to capture after screenshot");
+  }
+  if (options.exitPlayMode ?? true) {
+    const exit = await recordStep(steps, "exit_play_mode", now, async () => {
+      return setPlayModeAndWait({
+        targetPlaying: false,
+        timeoutMs: remainingMs(options.timeoutMs, startedAt, now),
+        pollIntervalMs,
+        commandTimeoutMs,
+        execute: options.execute,
+        delay: options.delay,
+        now
+      });
+    }, (value) => value.isPlaying === false ? "isPlaying=false" : void 0);
+    result.exit = exit;
+    if (!exit.success) {
+      return finishFailure(result, startedAt, now, exit.error?.message ?? "Failed to exit PlayMode");
+    }
+  }
+  result.success = true;
+  result.elapsedMs = now() - startedAt;
+  return result;
+}
+async function verifyPngCapture(response, outputPath, getFileSize) {
+  const pngBytes = await getFileSize(outputPath);
+  return {
+    ...response,
+    success: response.success && pngBytes > 0,
+    outputs: {
+      ...normalizeOutputs(response.outputs),
+      outputPath,
+      pngExists: pngBytes > 0,
+      pngBytes
+    },
+    error: response.success && pngBytes <= 0 ? { message: `Screenshot PNG was not created or is empty: ${outputPath}` } : response.error
+  };
+}
+async function recordStep(steps, name, now, action, detail) {
+  const startedAt = now();
+  const value = await action();
+  steps.push({
+    name,
+    success: value.success,
+    elapsedMs: now() - startedAt,
+    detail: detail?.(value)
+  });
+  return value;
+}
+function remainingMs(timeoutMs, startedAt, now) {
+  return Math.max(1, timeoutMs - (now() - startedAt));
+}
+function finishFailure(result, startedAt, now, message) {
+  result.success = false;
+  result.elapsedMs = now() - startedAt;
+  result.error = {
+    message
+  };
+  return result;
+}
+
 // src/tools.ts
 var baseConfigShape = {
   unityPath: external_exports.string().optional(),
@@ -21754,6 +21907,20 @@ function registerTools(server2) {
     timeoutMs: timeoutSchema,
     pollIntervalMs: external_exports.number().int().positive().max(1e4).optional()
   }, async (params) => toToolResult(await unityClickUiTextAndWait(params)));
+  server2.tool("unity_run_ui_text_qa_flow", "Runs a full PlayMode UI text QA flow: enter, wait, screenshot, click, wait, screenshot, and optional exit.", {
+    ...baseConfigShape,
+    initialText: external_exports.string().min(1),
+    clickText: external_exports.string().min(1),
+    expectedText: external_exports.string().min(1),
+    outputRoot: external_exports.string().optional(),
+    exact: external_exports.boolean().optional(),
+    includeInactive: external_exports.boolean().optional(),
+    timeoutMs: timeoutSchema,
+    pollIntervalMs: external_exports.number().int().positive().max(1e4).optional(),
+    width: external_exports.number().int().positive().max(8192).optional(),
+    height: external_exports.number().int().positive().max(8192).optional(),
+    exitPlayMode: external_exports.boolean().optional()
+  }, async (params) => toToolResult(await unityRunUiTextQaFlow(params)));
   server2.tool("unity_enter_play_mode", "Requests Unity PlayMode and waits until editor_status reports isPlaying=true.", {
     ...baseConfigShape,
     timeoutMs: timeoutSchema,
@@ -21774,7 +21941,7 @@ async function unityStatus(params) {
   const config2 = resolveProjectConfig(params);
   const processes = await listUnityRelatedProcesses();
   const staleCandidates = findStaleCandidates(processes, config2.projectPath);
-  const mcpSettingsPath = join4(config2.projectPath, "ProjectSettings", "McpUnitySettings.json");
+  const mcpSettingsPath = join5(config2.projectPath, "ProjectSettings", "McpUnitySettings.json");
   const mcpSettings = await readMcpSettings(mcpSettingsPath);
   const portOpen = mcpSettings?.Port ? await isPortOpen("127.0.0.1", mcpSettings.Port, 500) : void 0;
   const editorLogPath = defaultEditorLogPath();
@@ -21786,10 +21953,10 @@ async function unityStatus(params) {
     projectExists: await pathExists(config2.projectPath),
     commandRoot: config2.commandRoot,
     commandRootExists: await pathExists(config2.commandRoot),
-    lockfilePath: join4(config2.projectPath, "Temp", "UnityLockfile"),
-    lockfileExists: await pathExists(join4(config2.projectPath, "Temp", "UnityLockfile")),
-    editorInstancePath: join4(config2.projectPath, "Library", "EditorInstance.json"),
-    editorInstanceExists: await pathExists(join4(config2.projectPath, "Library", "EditorInstance.json")),
+    lockfilePath: join5(config2.projectPath, "Temp", "UnityLockfile"),
+    lockfileExists: await pathExists(join5(config2.projectPath, "Temp", "UnityLockfile")),
+    editorInstancePath: join5(config2.projectPath, "Library", "EditorInstance.json"),
+    editorInstanceExists: await pathExists(join5(config2.projectPath, "Library", "EditorInstance.json")),
     editorLogPath,
     editorLogExists: await pathExists(editorLogPath),
     legacyMcpUnity: {
@@ -21853,7 +22020,7 @@ async function unityExecuteEditorCommand(params) {
 }
 async function unityCaptureScreenshot(params) {
   const config2 = resolveProjectConfig(params);
-  const outputPath = params.outputPath || join4(config2.commandRoot, "screenshots", `screenshot-${Date.now()}.png`);
+  const outputPath = params.outputPath || join5(config2.commandRoot, "screenshots", `screenshot-${Date.now()}.png`);
   const response = await executeEditorCommand({
     unityPath: config2.unityPath,
     projectPath: config2.projectPath,
@@ -21905,6 +22072,33 @@ async function unityClickUiTextAndWait(params) {
     timeoutMs: params.timeoutMs ?? 3e4,
     pollIntervalMs: params.pollIntervalMs ?? 500,
     commandTimeoutMs: Math.min(params.timeoutMs ?? 15e3, 15e3),
+    execute: (command, parameters, timeoutMs) => executeEditorCommand({
+      unityPath: config2.unityPath,
+      projectPath: config2.projectPath,
+      commandRoot: config2.commandRoot,
+      command,
+      parameters,
+      timeoutMs,
+      runOnce: false
+    })
+  });
+}
+async function unityRunUiTextQaFlow(params) {
+  const config2 = resolveProjectConfig(params);
+  const outputRoot = params.outputRoot || join5(config2.projectPath, ".qa", `nx3-mcp-flow-${Date.now()}`, "screenshots");
+  return runUiTextQaFlow({
+    initialText: params.initialText,
+    clickText: params.clickText,
+    expectedText: params.expectedText,
+    outputRoot,
+    exact: params.exact ?? true,
+    includeInactive: params.includeInactive ?? false,
+    timeoutMs: params.timeoutMs ?? 9e4,
+    pollIntervalMs: params.pollIntervalMs ?? 500,
+    commandTimeoutMs: Math.min(params.timeoutMs ?? 15e3, 15e3),
+    width: params.width ?? 1280,
+    height: params.height ?? 720,
+    exitPlayMode: params.exitPlayMode ?? true,
     execute: (command, parameters, timeoutMs) => executeEditorCommand({
       unityPath: config2.unityPath,
       projectPath: config2.projectPath,
@@ -21992,7 +22186,7 @@ function toToolResult(value) {
 }
 function defaultEditorLogPath() {
   const localAppData = process.env.LOCALAPPDATA || "";
-  return join4(localAppData, "Unity", "Editor", "Editor.log");
+  return join5(localAppData, "Unity", "Editor", "Editor.log");
 }
 async function readMcpSettings(filePath) {
   try {

@@ -48,6 +48,7 @@ The Node MCP server also exposes higher-level PlayMode helpers:
 - `unity_click_ui_text`
 - `unity_wait_ui_text`
 - `unity_click_ui_text_and_wait`
+- `unity_run_ui_text_qa_flow`
 
 The PlayMode helpers call the bridge command first, then poll `editor_status`
 until the requested `isPlaying` state is observed. `unity_click_ui_text` finds a
@@ -56,5 +57,9 @@ manual coordinate transfer from `dump_ui`. `unity_wait_ui_text` polls `dump_ui`
 until expected text appears, which makes post-click screen confirmation
 deterministic. `unity_click_ui_text_and_wait` combines the click and expected
 text wait into one QA step.
+`unity_run_ui_text_qa_flow` wraps the common Splash QA path into one tool call:
+enter PlayMode, wait for initial text, capture before, click text, wait for
+expected text, capture after, then optionally exit PlayMode. The response keeps
+per-step success and elapsed time so a single failed phase is visible.
 
 NGUI support is reflection-based. Projects without NGUI still compile.

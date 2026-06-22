@@ -11,6 +11,7 @@ import { summarizeEditorLog } from './utils/editorLog.js';
 import { findStaleCandidates, killProcess, listUnityRelatedProcesses } from './processes.js';
 import { normalizeOutputs, setPlayModeAndWait } from './playMode.js';
 import { clickUiTextAndWait, waitForUiText } from './uiText.js';
+import { runUiTextQaFlow } from './qaFlow.js';
 
 const baseConfigShape = {
   unityPath: z.string().optional(),
@@ -92,6 +93,21 @@ export function registerTools(server: McpServer): void {
     timeoutMs: timeoutSchema,
     pollIntervalMs: z.number().int().positive().max(10000).optional(),
   }, async (params) => toToolResult(await unityClickUiTextAndWait(params)));
+
+  server.tool('unity_run_ui_text_qa_flow', 'Runs a full PlayMode UI text QA flow: enter, wait, screenshot, click, wait, screenshot, and optional exit.', {
+    ...baseConfigShape,
+    initialText: z.string().min(1),
+    clickText: z.string().min(1),
+    expectedText: z.string().min(1),
+    outputRoot: z.string().optional(),
+    exact: z.boolean().optional(),
+    includeInactive: z.boolean().optional(),
+    timeoutMs: timeoutSchema,
+    pollIntervalMs: z.number().int().positive().max(10000).optional(),
+    width: z.number().int().positive().max(8192).optional(),
+    height: z.number().int().positive().max(8192).optional(),
+    exitPlayMode: z.boolean().optional(),
+  }, async (params) => toToolResult(await unityRunUiTextQaFlow(params)));
 
   server.tool('unity_enter_play_mode', 'Requests Unity PlayMode and waits until editor_status reports isPlaying=true.', {
     ...baseConfigShape,
@@ -257,6 +273,34 @@ async function unityClickUiTextAndWait(params: any): Promise<unknown> {
     timeoutMs: params.timeoutMs ?? 30000,
     pollIntervalMs: params.pollIntervalMs ?? 500,
     commandTimeoutMs: Math.min(params.timeoutMs ?? 15000, 15000),
+    execute: (command, parameters, timeoutMs) => executeEditorCommand({
+      unityPath: config.unityPath,
+      projectPath: config.projectPath,
+      commandRoot: config.commandRoot,
+      command,
+      parameters,
+      timeoutMs,
+      runOnce: false,
+    }),
+  });
+}
+
+async function unityRunUiTextQaFlow(params: any): Promise<unknown> {
+  const config = resolveProjectConfig(params);
+  const outputRoot = params.outputRoot || join(config.projectPath, '.qa', `nx3-mcp-flow-${Date.now()}`, 'screenshots');
+  return runUiTextQaFlow({
+    initialText: params.initialText,
+    clickText: params.clickText,
+    expectedText: params.expectedText,
+    outputRoot,
+    exact: params.exact ?? true,
+    includeInactive: params.includeInactive ?? false,
+    timeoutMs: params.timeoutMs ?? 90000,
+    pollIntervalMs: params.pollIntervalMs ?? 500,
+    commandTimeoutMs: Math.min(params.timeoutMs ?? 15000, 15000),
+    width: params.width ?? 1280,
+    height: params.height ?? 720,
+    exitPlayMode: params.exitPlayMode ?? true,
     execute: (command, parameters, timeoutMs) => executeEditorCommand({
       unityPath: config.unityPath,
       projectPath: config.projectPath,

@@ -82,6 +82,9 @@ instead of requiring manual `dump_ui` coordinate transfer.
 timed-out response with the last observed UI dump.
 `unity_click_ui_text_and_wait` must click a visible label and return the
 post-click matched UI text in one response.
+`unity_run_ui_text_qa_flow` must enter PlayMode, wait for initial text, capture
+before/after screenshots, click text, wait for expected text, and return every
+step in one response.
 Test tools parse Unity Test Framework XML and expose failure counts.
 Screenshot tools verify that a PNG exists and has non-zero size.
 
