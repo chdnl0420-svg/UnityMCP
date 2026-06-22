@@ -491,8 +491,8 @@ namespace ProjectMQaMcp.Editor
 
                 var kind = collider != null ? "clickable" : "label";
                 var coord = string.Empty;
+                var clickTarget = default(GameObject);
                 var clickCoord = string.Empty;
-                var clickCollider = collider ?? FindClickableAncestor(go);
                 if (uiCamera != null)
                 {
                     var world = collider != null ? collider.bounds.center : go.transform.position;
@@ -501,12 +501,15 @@ namespace ProjectMQaMcp.Editor
                     var normalizedY = 1f - screen.y / Screen.height;
                     coord = $"\tx={normalizedX:F3}\ty={normalizedY:F3}";
 
-                    if (clickCollider != null)
+                    clickTarget = FindClickableTarget(go, screen);
+                    if (clickTarget != null)
                     {
-                        var clickScreen = uiCamera.WorldToScreenPoint(clickCollider.bounds.center);
+                        var clickCollider = clickTarget.GetComponent<Collider>();
+                        var clickWorld = clickCollider != null ? clickCollider.bounds.center : clickTarget.transform.position;
+                        var clickScreen = uiCamera.WorldToScreenPoint(clickWorld);
                         var clickX = clickScreen.x / Screen.width;
                         var clickY = 1f - clickScreen.y / Screen.height;
-                        clickCoord = $"\tclickPath={GetHierarchyPath(clickCollider.gameObject)}\tclickX={clickX:F3}\tclickY={clickY:F3}";
+                        clickCoord = $"\tclickPath={GetHierarchyPath(clickTarget)}\tclickX={clickX:F3}\tclickY={clickY:F3}";
                     }
                 }
 
@@ -516,6 +519,24 @@ namespace ProjectMQaMcp.Editor
 
             response.AddOutput("count", lines.Count.ToString());
             response.AddOutput("ui", string.Join("\n", lines));
+        }
+
+        private static GameObject FindClickableTarget(GameObject go, Vector3 screenPos)
+        {
+            var collider = go.GetComponent<Collider>();
+            if (collider != null)
+            {
+                return go;
+            }
+
+            var hit = NguiRaycast(screenPos);
+            if (hit != null)
+            {
+                return hit;
+            }
+
+            var ancestor = FindClickableAncestor(go);
+            return ancestor != null ? ancestor.gameObject : null;
         }
 
         private static Collider FindClickableAncestor(GameObject go)
