@@ -17,6 +17,7 @@ namespace ProjectMQaMcp.Editor
         private const string LogPrefix = "[ProjectMQaMcp]";
         private const double PollIntervalSeconds = 1.0;
         private const float FallbackClickMaxNormalizedDistanceSqr = 0.18f;
+        private const int FallbackClickMinSharedHierarchy = 3;
 
         private static double nextPollTime;
         private static bool isProcessing;
@@ -707,6 +708,11 @@ namespace ProjectMQaMcp.Editor
                 }
 
                 var affinity = CountSharedHierarchy(source.transform, target.transform);
+                if (affinity < FallbackClickMinSharedHierarchy)
+                {
+                    continue;
+                }
+
                 if (bestTarget == null || affinity > bestAffinity ||
                     affinity == bestAffinity && distanceSqr < bestDistanceSqr)
                 {
