@@ -10,6 +10,7 @@ import { fileSize, pathExists, readTail } from './utils/files.js';
 import { summarizeEditorLog } from './utils/editorLog.js';
 import { findStaleCandidates, killProcess, listUnityRelatedProcesses } from './processes.js';
 import { normalizeOutputs, setPlayModeAndWait } from './playMode.js';
+import { waitForUiText } from './uiText.js';
 
 const baseConfigShape = {
   unityPath: z.string().optional(),
@@ -72,6 +73,15 @@ export function registerTools(server: McpServer): void {
     timeoutMs: timeoutSchema,
     runOnce: z.boolean().optional(),
   }, async (params) => toToolResult(await unityClickUiText(params)));
+
+  server.tool('unity_wait_ui_text', 'Polls dump_ui until the requested UI text appears.', {
+    ...baseConfigShape,
+    text: z.string().min(1),
+    exact: z.boolean().optional(),
+    includeInactive: z.boolean().optional(),
+    timeoutMs: timeoutSchema,
+    pollIntervalMs: z.number().int().positive().max(10000).optional(),
+  }, async (params) => toToolResult(await unityWaitUiText(params)));
 
   server.tool('unity_enter_play_mode', 'Requests Unity PlayMode and waits until editor_status reports isPlaying=true.', {
     ...baseConfigShape,
@@ -224,6 +234,27 @@ async function unityClickUiText(params: any): Promise<unknown> {
     },
     timeoutMs: params.timeoutMs ?? 15000,
     runOnce: params.runOnce ?? false,
+  });
+}
+
+async function unityWaitUiText(params: any): Promise<unknown> {
+  const config = resolveProjectConfig(params);
+  return waitForUiText({
+    text: params.text,
+    exact: params.exact ?? false,
+    includeInactive: params.includeInactive ?? false,
+    timeoutMs: params.timeoutMs ?? 30000,
+    pollIntervalMs: params.pollIntervalMs ?? 500,
+    commandTimeoutMs: Math.min(params.timeoutMs ?? 15000, 15000),
+    execute: (command, parameters, timeoutMs) => executeEditorCommand({
+      unityPath: config.unityPath,
+      projectPath: config.projectPath,
+      commandRoot: config.commandRoot,
+      command,
+      parameters,
+      timeoutMs,
+      runOnce: false,
+    }),
   });
 }
 

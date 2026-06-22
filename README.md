@@ -78,6 +78,8 @@ Editor commands must write response JSON with `success`, `command`,
 success.
 `unity_click_ui_text` must resolve a visible NGUI label to its clickable target
 instead of requiring manual `dump_ui` coordinate transfer.
+`unity_wait_ui_text` must poll `dump_ui` until expected text appears or return a
+timed-out response with the last observed UI dump.
 Test tools parse Unity Test Framework XML and expose failure counts.
 Screenshot tools verify that a PNG exists and has non-zero size.
 

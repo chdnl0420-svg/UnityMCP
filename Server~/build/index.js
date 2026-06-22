@@ -21557,6 +21557,84 @@ function defaultDelay(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+// src/uiText.ts
+async function waitForUiText(options) {
+  const now = options.now ?? (() => Date.now());
+  const delay2 = options.delay ?? defaultDelay2;
+  const exact = options.exact ?? false;
+  const pollIntervalMs = options.pollIntervalMs ?? 500;
+  const commandTimeoutMs = options.commandTimeoutMs ?? 15e3;
+  const startedAt = now();
+  let polls = 0;
+  let lastUi = "";
+  let lastResponse;
+  while (now() - startedAt < options.timeoutMs) {
+    lastResponse = await options.execute("dump_ui", {
+      includeInactive: options.includeInactive ?? false
+    }, commandTimeoutMs);
+    polls += 1;
+    if (!lastResponse.success) {
+      return {
+        success: false,
+        text: options.text,
+        exact,
+        elapsedMs: now() - startedAt,
+        polls,
+        lastResponse,
+        error: {
+          message: lastResponse.error?.message ?? "dump_ui failed while waiting for UI text"
+        }
+      };
+    }
+    lastUi = String(normalizeOutputs(lastResponse.outputs).ui ?? "");
+    const matchedLine = findUiTextLine(lastUi, options.text, exact);
+    if (matchedLine) {
+      return {
+        success: true,
+        text: options.text,
+        exact,
+        elapsedMs: now() - startedAt,
+        polls,
+        matchedLine,
+        lastUi,
+        lastResponse
+      };
+    }
+    await delay2(pollIntervalMs);
+  }
+  return {
+    success: false,
+    text: options.text,
+    exact,
+    elapsedMs: now() - startedAt,
+    polls,
+    lastUi,
+    lastResponse,
+    error: {
+      message: `Timed out waiting for UI text "${options.text}" after ${options.timeoutMs}ms`
+    }
+  };
+}
+function findUiTextLine(ui, text, exact) {
+  const normalizedNeedle = text.toLowerCase();
+  return ui.split(/\r?\n/).find((line) => {
+    const value = readLineText(line);
+    if (!value) {
+      return false;
+    }
+    const normalizedValue = value.toLowerCase();
+    return exact ? normalizedValue === normalizedNeedle : normalizedValue.includes(normalizedNeedle);
+  });
+}
+function readLineText(line) {
+  const marker = "	text=";
+  const index = line.indexOf(marker);
+  return index >= 0 ? line.slice(index + marker.length) : void 0;
+}
+function defaultDelay2(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 // src/tools.ts
 var baseConfigShape = {
   unityPath: external_exports.string().optional(),
@@ -21610,6 +21688,14 @@ function registerTools(server2) {
     timeoutMs: timeoutSchema,
     runOnce: external_exports.boolean().optional()
   }, async (params) => toToolResult(await unityClickUiText(params)));
+  server2.tool("unity_wait_ui_text", "Polls dump_ui until the requested UI text appears.", {
+    ...baseConfigShape,
+    text: external_exports.string().min(1),
+    exact: external_exports.boolean().optional(),
+    includeInactive: external_exports.boolean().optional(),
+    timeoutMs: timeoutSchema,
+    pollIntervalMs: external_exports.number().int().positive().max(1e4).optional()
+  }, async (params) => toToolResult(await unityWaitUiText(params)));
   server2.tool("unity_enter_play_mode", "Requests Unity PlayMode and waits until editor_status reports isPlaying=true.", {
     ...baseConfigShape,
     timeoutMs: timeoutSchema,
@@ -21749,6 +21835,26 @@ async function unityClickUiText(params) {
     },
     timeoutMs: params.timeoutMs ?? 15e3,
     runOnce: params.runOnce ?? false
+  });
+}
+async function unityWaitUiText(params) {
+  const config2 = resolveProjectConfig(params);
+  return waitForUiText({
+    text: params.text,
+    exact: params.exact ?? false,
+    includeInactive: params.includeInactive ?? false,
+    timeoutMs: params.timeoutMs ?? 3e4,
+    pollIntervalMs: params.pollIntervalMs ?? 500,
+    commandTimeoutMs: Math.min(params.timeoutMs ?? 15e3, 15e3),
+    execute: (command, parameters, timeoutMs) => executeEditorCommand({
+      unityPath: config2.unityPath,
+      projectPath: config2.projectPath,
+      commandRoot: config2.commandRoot,
+      command,
+      parameters,
+      timeoutMs,
+      runOnce: false
+    })
   });
 }
 async function unitySetPlayMode(params, targetPlaying) {
