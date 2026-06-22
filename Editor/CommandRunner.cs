@@ -131,6 +131,9 @@ namespace ProjectMQaMcp.Editor
                 case "click_ngui_object":
                     ClickNguiObject(parameters, response);
                     break;
+                case "click_at":
+                    ClickAt(parameters, response);
+                    break;
                 default:
                     throw new NotSupportedException($"Unsupported command: {request.command}");
             }
@@ -245,6 +248,46 @@ namespace ProjectMQaMcp.Editor
             }
 
             response.AddOutput("path", GetHierarchyPath(target));
+            response.AddOutput("clicked", "true");
+        }
+
+        private static void ClickAt(CommandParameters parameters, CommandResponse response)
+        {
+            var camera = FindCamera(parameters.cameraName);
+            if (camera == null)
+            {
+                throw new InvalidOperationException("No camera found for coordinate click.");
+            }
+
+            var cameraNames = Resources.FindObjectsOfTypeAll<Camera>()
+                .Where(x => !EditorUtility.IsPersistent(x))
+                .Select(x => x.name);
+            response.AddOutput("camera", camera.name);
+            response.AddOutput("cameras", string.Join(",", cameraNames));
+
+            var viewportX = Mathf.Clamp01(parameters.pointX);
+            var viewportY = Mathf.Clamp01(1f - parameters.pointY);
+            var ray = camera.ViewportPointToRay(new Vector3(viewportX, viewportY, 0f));
+            if (!Physics.Raycast(ray, out var hit, Mathf.Infinity))
+            {
+                response.success = false;
+                response.error = new CommandError
+                {
+                    message = $"No collider hit at normalized ({parameters.pointX}, {parameters.pointY})."
+                };
+                return;
+            }
+
+            var target = hit.collider.gameObject;
+            if (!NotifyNgui(target, "OnClick", null))
+            {
+                target.SendMessage("OnClick", null, SendMessageOptions.DontRequireReceiver);
+                response.logs.Add($"{LogPrefix} UICamera.Notify not found; used SendMessage fallback.");
+            }
+
+            response.AddOutput("hitPath", GetHierarchyPath(target));
+            response.AddOutput("hitName", target.name);
+            response.AddOutput("hitPoint", hit.point.ToString("F3"));
             response.AddOutput("clicked", "true");
         }
 
@@ -382,6 +425,8 @@ namespace ProjectMQaMcp.Editor
         public string targetName;
         public string targetPath;
         public bool includeInactive;
+        public float pointX;
+        public float pointY;
     }
 
     [Serializable]
