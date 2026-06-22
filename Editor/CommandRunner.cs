@@ -482,6 +482,8 @@ namespace ProjectMQaMcp.Editor
 
                 var kind = collider != null ? "clickable" : "label";
                 var coord = string.Empty;
+                var clickCoord = string.Empty;
+                var clickCollider = collider ?? FindClickableAncestor(go);
                 if (uiCamera != null)
                 {
                     var world = collider != null ? collider.bounds.center : go.transform.position;
@@ -489,14 +491,39 @@ namespace ProjectMQaMcp.Editor
                     var normalizedX = screen.x / Screen.width;
                     var normalizedY = 1f - screen.y / Screen.height;
                     coord = $"\tx={normalizedX:F3}\ty={normalizedY:F3}";
+
+                    if (clickCollider != null)
+                    {
+                        var clickScreen = uiCamera.WorldToScreenPoint(clickCollider.bounds.center);
+                        var clickX = clickScreen.x / Screen.width;
+                        var clickY = 1f - clickScreen.y / Screen.height;
+                        clickCoord = $"\tclickPath={GetHierarchyPath(clickCollider.gameObject)}\tclickX={clickX:F3}\tclickY={clickY:F3}";
+                    }
                 }
 
                 var text = string.IsNullOrEmpty(label) ? string.Empty : $"\ttext={label}";
-                lines.Add($"{GetHierarchyPath(go)}\t{kind}{coord}{text}");
+                lines.Add($"{GetHierarchyPath(go)}\t{kind}{coord}{clickCoord}{text}");
             }
 
             response.AddOutput("count", lines.Count.ToString());
             response.AddOutput("ui", string.Join("\n", lines));
+        }
+
+        private static Collider FindClickableAncestor(GameObject go)
+        {
+            var current = go.transform.parent;
+            while (current != null)
+            {
+                var collider = current.GetComponent<Collider>();
+                if (collider != null && current.gameObject.activeInHierarchy)
+                {
+                    return collider;
+                }
+
+                current = current.parent;
+            }
+
+            return null;
         }
 
         private static Camera FindUiCamera()
