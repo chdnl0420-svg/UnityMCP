@@ -9,7 +9,14 @@ JSON files under `.codex/unity-commands`.
 
 ## Install in Unity
 
-Use Unity Package Manager with a Git URL:
+Use Unity Package Manager with `Add package from git URL...`.
+The URL must include the `.git` suffix:
+
+```text
+https://github.com/chdnl0420-svg/UnityMCP.git
+```
+
+You can also edit `Packages/manifest.json` directly:
 
 ```json
 {
