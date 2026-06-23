@@ -623,16 +623,27 @@ namespace ProjectMQaMcp.Editor
                     clickTarget = clickTargetResolution?.Target;
                     if (clickTarget != null)
                     {
-                        var clickCollider = clickTarget.GetComponent<Collider>();
-                        var clickWorld = clickCollider != null ? clickCollider.bounds.center : clickTarget.transform.position;
-                        var clickScreen = uiCamera.WorldToScreenPoint(clickWorld);
-                        var clickX = clickScreen.x / Screen.width;
-                        var clickY = 1f - clickScreen.y / Screen.height;
-                        var clickDistance = clickTargetResolution.Distance > 0f
-                            ? $"\tclickDistance={clickTargetResolution.Distance:F3}"
-                            : string.Empty;
-                        clickCoord = $"\tclickPath={GetHierarchyPath(clickTarget)}\tclickX={clickX:F3}\tclickY={clickY:F3}" +
-                            $"\tclickResolution={clickTargetResolution.Resolution}{clickDistance}";
+                        if (clickTargetResolution.Resolution == "overlap")
+                        {
+                            // overlap = this label merely sits over an unrelated widget; it is
+                            // not this label's own button. The QA flow treats overlap as
+                            // read-only info, so the resolved path/coords are noise. Emit only
+                            // the marker to keep dump_ui output small on info-dense screens.
+                            clickCoord = "\tclickResolution=overlap";
+                        }
+                        else
+                        {
+                            var clickCollider = clickTarget.GetComponent<Collider>();
+                            var clickWorld = clickCollider != null ? clickCollider.bounds.center : clickTarget.transform.position;
+                            var clickScreen = uiCamera.WorldToScreenPoint(clickWorld);
+                            var clickX = clickScreen.x / Screen.width;
+                            var clickY = 1f - clickScreen.y / Screen.height;
+                            var clickDistance = clickTargetResolution.Distance > 0f
+                                ? $"\tclickDistance={clickTargetResolution.Distance:F3}"
+                                : string.Empty;
+                            clickCoord = $"\tclickPath={GetHierarchyPath(clickTarget)}\tclickX={clickX:F3}\tclickY={clickY:F3}" +
+                                $"\tclickResolution={clickTargetResolution.Resolution}{clickDistance}";
+                        }
                     }
                 }
 
