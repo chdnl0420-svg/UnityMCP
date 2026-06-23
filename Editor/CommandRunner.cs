@@ -716,7 +716,7 @@ namespace ProjectMQaMcp.Editor
                 return new ClickTargetResolution
                 {
                     Target = hit,
-                    Resolution = IsAncestorOf(hit.transform, go.transform) ? "direct" : "overlap",
+                    Resolution = hit == go || IsAncestorOf(hit.transform, go.transform) ? "direct" : "overlap",
                     Distance = 0f
                 };
             }
