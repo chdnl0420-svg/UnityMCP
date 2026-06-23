@@ -261,7 +261,8 @@ namespace ProjectMQaMcp.Editor
                     clickY = command.clickY,
                     text = command.text,
                     labelText = command.labelText,
-                    targetText = command.targetText
+                    targetText = command.targetText,
+                    expectHitContains = command.expectHitContains
                 }
             };
         }
@@ -433,15 +434,44 @@ namespace ProjectMQaMcp.Editor
                 return;
             }
 
+            // Optional guard against silent mis-clicks: when the caller knows which
+            // element it intends to hit (e.g. from a prior dump_ui), it can pass
+            // expectHitContains. If the actual raycast hit does not contain that
+            // substring (path or name), the target screen probably is not ready yet
+            // and the click would land on a background. Do NOT click; report the
+            // mismatch so QA can wait and retry instead of trusting a false success.
+            var hitPath = GetHierarchyPath(target);
+            var expect = parameters.expectHitContains;
+            if (!string.IsNullOrEmpty(expect) &&
+                hitPath.IndexOf(expect, StringComparison.OrdinalIgnoreCase) < 0 &&
+                target.name.IndexOf(expect, StringComparison.OrdinalIgnoreCase) < 0)
+            {
+                response.AddOutput("hitPath", hitPath);
+                response.AddOutput("hitName", target.name);
+                response.AddOutput("clicked", "false");
+                response.AddOutput("expectHitContains", expect);
+                response.AddOutput("expectMatched", "false");
+                response.success = false;
+                response.error = new CommandError
+                {
+                    message = $"Hit '{target.name}' does not match expected '{expect}' (screen may not be ready)."
+                };
+                return;
+            }
+
             if (!NotifyNgui(target, "OnClick", null))
             {
                 target.SendMessage("OnClick", null, SendMessageOptions.DontRequireReceiver);
                 response.logs.Add($"{LogPrefix} UICamera.Notify not found; used SendMessage fallback.");
             }
 
-            response.AddOutput("hitPath", GetHierarchyPath(target));
+            response.AddOutput("hitPath", hitPath);
             response.AddOutput("hitName", target.name);
             response.AddOutput("clicked", "true");
+            if (!string.IsNullOrEmpty(expect))
+            {
+                response.AddOutput("expectMatched", "true");
+            }
         }
 
         private static void ClickUiText(CommandParameters parameters, CommandResponse response)
@@ -1124,6 +1154,7 @@ namespace ProjectMQaMcp.Editor
         public string text;
         public string labelText;
         public string targetText;
+        public string expectHitContains;
         public List<BatchCommand> commands;
     }
 
@@ -1152,6 +1183,7 @@ namespace ProjectMQaMcp.Editor
         public string text;
         public string labelText;
         public string targetText;
+        public string expectHitContains;
     }
 
     [Serializable]
