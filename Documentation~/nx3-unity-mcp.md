@@ -59,6 +59,8 @@ deterministic. `unity_click_ui_text_and_wait` combines the click and expected
 text wait into one QA step.
 Labels that have no direct clickable object can resolve to a nearby clickable
 target; those rows and click responses include `clickResolution=nearest`.
+`dump_ui` filters out off-screen entries by default and reports how many were
+omitted. Send `includeOffscreen=true` to keep the older full dump behavior.
 `unity_run_ui_text_qa_flow` wraps the common Splash QA path into one tool call:
 enter PlayMode, wait for initial text, capture before, click text, wait for
 expected text, capture after, then optionally exit PlayMode. The response keeps

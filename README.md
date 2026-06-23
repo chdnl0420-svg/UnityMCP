@@ -80,6 +80,8 @@ success.
 instead of requiring manual `dump_ui` coordinate transfer.
 When a label has no direct clickable target, text-click and `dump_ui` fallback
 to a nearby clickable UI object and mark it with `clickResolution=nearest`.
+`dump_ui` omits off-screen UI by default to keep QA responses small; pass
+`includeOffscreen=true` when scroll-buffered or hidden coordinates are needed.
 `unity_wait_ui_text` must poll `dump_ui` until expected text appears or return a
 timed-out response with the last observed UI dump.
 `unity_click_ui_text_and_wait` must click a visible label and return the

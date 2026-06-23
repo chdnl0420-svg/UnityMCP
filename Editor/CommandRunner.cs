@@ -18,6 +18,7 @@ namespace ProjectMQaMcp.Editor
         private const double PollIntervalSeconds = 1.0;
         private const float FallbackClickMaxNormalizedDistanceSqr = 0.18f;
         private const int FallbackClickMinSharedHierarchy = 3;
+        private const float VisibleBoundsPadding = 0.02f;
 
         private static double nextPollTime;
         private static bool isProcessing;
@@ -250,6 +251,7 @@ namespace ProjectMQaMcp.Editor
                     targetName = command.targetName,
                     targetPath = command.targetPath,
                     includeInactive = command.includeInactive,
+                    includeOffscreen = command.includeOffscreen,
                     pointX = command.pointX,
                     pointY = command.pointY,
                     x = command.x,
@@ -582,7 +584,9 @@ namespace ProjectMQaMcp.Editor
         private static void DumpUi(CommandParameters parameters, CommandResponse response)
         {
             var uiCamera = FindUiCamera();
+            var includeOffscreen = parameters.includeOffscreen;
             var lines = new List<string>();
+            var omittedOffscreen = 0;
             foreach (var go in Resources.FindObjectsOfTypeAll<GameObject>())
             {
                 if (EditorUtility.IsPersistent(go) || !go.activeInHierarchy)
@@ -607,6 +611,12 @@ namespace ProjectMQaMcp.Editor
                     var screen = uiCamera.WorldToScreenPoint(world);
                     var normalizedX = screen.x / Screen.width;
                     var normalizedY = 1f - screen.y / Screen.height;
+                    if (!includeOffscreen && !IsVisibleScreenPoint(normalizedX, normalizedY, screen.z))
+                    {
+                        omittedOffscreen++;
+                        continue;
+                    }
+
                     coord = $"\tx={normalizedX:F3}\ty={normalizedY:F3}";
 
                     var clickTargetResolution = ResolveClickableTarget(go, screen);
@@ -631,7 +641,22 @@ namespace ProjectMQaMcp.Editor
             }
 
             response.AddOutput("count", lines.Count.ToString());
+            response.AddOutput("omittedOffscreen", omittedOffscreen.ToString());
+            response.AddOutput("includeOffscreen", includeOffscreen.ToString());
             response.AddOutput("ui", string.Join("\n", lines));
+        }
+
+        private static bool IsVisibleScreenPoint(float normalizedX, float normalizedY, float z)
+        {
+            if (z < 0f)
+            {
+                return false;
+            }
+
+            return normalizedX >= -VisibleBoundsPadding &&
+                normalizedX <= 1f + VisibleBoundsPadding &&
+                normalizedY >= -VisibleBoundsPadding &&
+                normalizedY <= 1f + VisibleBoundsPadding;
         }
 
         private static GameObject FindClickableTarget(GameObject go, Vector3 screenPos)
@@ -1007,6 +1032,7 @@ namespace ProjectMQaMcp.Editor
         public string targetName;
         public string targetPath;
         public bool includeInactive;
+        public bool includeOffscreen;
         public float pointX;
         public float pointY;
         public float x;
@@ -1033,6 +1059,7 @@ namespace ProjectMQaMcp.Editor
         public string targetName;
         public string targetPath;
         public bool includeInactive;
+        public bool includeOffscreen;
         public float pointX;
         public float pointY;
         public float x;
