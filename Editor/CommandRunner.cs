@@ -252,6 +252,7 @@ namespace ProjectMQaMcp.Editor
                     targetPath = command.targetPath,
                     includeInactive = command.includeInactive,
                     includeOffscreen = command.includeOffscreen,
+                    actionableOnly = command.actionableOnly,
                     pointX = command.pointX,
                     pointY = command.pointY,
                     x = command.x,
@@ -585,8 +586,10 @@ namespace ProjectMQaMcp.Editor
         {
             var uiCamera = FindUiCamera();
             var includeOffscreen = parameters.includeOffscreen;
+            var actionableOnly = parameters.actionableOnly;
             var lines = new List<string>();
             var omittedOffscreen = 0;
+            var omittedNonActionable = 0;
             foreach (var go in Resources.FindObjectsOfTypeAll<GameObject>())
             {
                 if (EditorUtility.IsPersistent(go) || !go.activeInHierarchy)
@@ -605,6 +608,7 @@ namespace ProjectMQaMcp.Editor
                 var coord = string.Empty;
                 var clickTarget = default(GameObject);
                 var clickCoord = string.Empty;
+                var resolution = string.Empty;
                 if (uiCamera != null)
                 {
                     var world = collider != null ? collider.bounds.center : go.transform.position;
@@ -623,6 +627,7 @@ namespace ProjectMQaMcp.Editor
                     clickTarget = clickTargetResolution?.Target;
                     if (clickTarget != null)
                     {
+                        resolution = clickTargetResolution.Resolution;
                         if (clickTargetResolution.Resolution == "overlap")
                         {
                             // overlap = this label merely sits over an unrelated widget; it is
@@ -647,13 +652,25 @@ namespace ProjectMQaMcp.Editor
                     }
                 }
 
+                // actionableOnly = QA wants just the things it can click. An item is
+                // actionable when it has its own collider (kind=clickable) or its label
+                // resolves directly to a button (clickResolution=direct). overlap/nearest
+                // and pure info labels are dropped to keep the dump small on dense screens.
+                if (actionableOnly && kind != "clickable" && resolution != "direct")
+                {
+                    omittedNonActionable++;
+                    continue;
+                }
+
                 var text = string.IsNullOrEmpty(label) ? string.Empty : $"\ttext={label}";
                 lines.Add($"{GetHierarchyPath(go)}\t{kind}{coord}{clickCoord}{text}");
             }
 
             response.AddOutput("count", lines.Count.ToString());
             response.AddOutput("omittedOffscreen", omittedOffscreen.ToString());
+            response.AddOutput("omittedNonActionable", omittedNonActionable.ToString());
             response.AddOutput("includeOffscreen", includeOffscreen.ToString());
+            response.AddOutput("actionableOnly", actionableOnly.ToString());
             response.AddOutput("ui", string.Join("\n", lines));
         }
 
@@ -1097,6 +1114,7 @@ namespace ProjectMQaMcp.Editor
         public string targetPath;
         public bool includeInactive;
         public bool includeOffscreen;
+        public bool actionableOnly;
         public float pointX;
         public float pointY;
         public float x;
@@ -1124,6 +1142,7 @@ namespace ProjectMQaMcp.Editor
         public string targetPath;
         public bool includeInactive;
         public bool includeOffscreen;
+        public bool actionableOnly;
         public float pointX;
         public float pointY;
         public float x;
