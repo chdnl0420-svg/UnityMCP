@@ -679,17 +679,45 @@ namespace ProjectMQaMcp.Editor
 
         private static ClickTargetResolution ResolveClickableTarget(GameObject go, Vector3 screenPos)
         {
-            var directTarget = FindClickableTarget(go, screenPos);
-            if (directTarget != null)
+            // 1. The object itself is clickable.
+            if (go.GetComponent<Collider>() != null)
             {
                 return new ClickTargetResolution
                 {
-                    Target = directTarget,
+                    Target = go,
                     Resolution = "direct",
                     Distance = 0f
                 };
             }
 
+            // 2. A clickable ancestor — the label is part of this button.
+            var ancestor = FindClickableAncestor(go);
+            if (ancestor != null)
+            {
+                return new ClickTargetResolution
+                {
+                    Target = ancestor.gameObject,
+                    Resolution = "direct",
+                    Distance = 0f
+                };
+            }
+
+            // 3. An unrelated clickable widget overlaps this object's own position.
+            //    Report it honestly as "overlap" so QA can tell it is not this label's
+            //    own button (e.g. a decorative/version label sitting over a full-screen
+            //    background button).
+            var hit = NguiRaycast(screenPos);
+            if (hit != null)
+            {
+                return new ClickTargetResolution
+                {
+                    Target = hit,
+                    Resolution = "overlap",
+                    Distance = 0f
+                };
+            }
+
+            // 4. Nearest clickable sharing hierarchy with this object.
             return FindNearestClickableTarget(go, screenPos);
         }
 
