@@ -702,17 +702,21 @@ namespace ProjectMQaMcp.Editor
                 };
             }
 
-            // 3. An unrelated clickable widget overlaps this object's own position.
-            //    Report it honestly as "overlap" so QA can tell it is not this label's
-            //    own button (e.g. a decorative/version label sitting over a full-screen
-            //    background button).
+            // 3. A clickable widget sits under this object's own position.
+            //    NGUI often puts the BoxCollider on a child of the button while the
+            //    click handler lives on the parent, so the ancestor-collider walk in
+            //    step 2 can miss a button that this label genuinely belongs to.
+            //    Classify by hierarchy: if the hit is an ancestor of this object the
+            //    label is part of that button -> "direct"; otherwise an unrelated
+            //    widget merely overlaps it (e.g. a version/copyright label sitting over
+            //    a full-screen background button) -> "overlap".
             var hit = NguiRaycast(screenPos);
             if (hit != null)
             {
                 return new ClickTargetResolution
                 {
                     Target = hit,
-                    Resolution = "overlap",
+                    Resolution = IsAncestorOf(hit.transform, go.transform) ? "direct" : "overlap",
                     Distance = 0f
                 };
             }
@@ -849,6 +853,27 @@ namespace ProjectMQaMcp.Editor
 
             var contains = labels.FirstOrDefault(x => x.Text.IndexOf(text, StringComparison.OrdinalIgnoreCase) >= 0);
             return contains?.Object;
+        }
+
+        private static bool IsAncestorOf(Transform ancestor, Transform node)
+        {
+            if (ancestor == null || node == null)
+            {
+                return false;
+            }
+
+            var current = node.parent;
+            while (current != null)
+            {
+                if (current == ancestor)
+                {
+                    return true;
+                }
+
+                current = current.parent;
+            }
+
+            return false;
         }
 
         private static Collider FindClickableAncestor(GameObject go)
