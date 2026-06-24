@@ -76,6 +76,7 @@ The Node MCP server also exposes higher-level PlayMode helpers:
 - `unity_click_ui_text`
 - `unity_wait_ui_text`
 - `unity_click_ui_text_and_wait`
+- `unity_wait_then_click`
 - `unity_run_ui_text_qa_flow`
 
 And typed wrappers for the commands above:
@@ -92,7 +93,10 @@ visible NGUI label by text and clicks the resolved clickable target, avoiding
 manual coordinate transfer from `dump_ui`. `unity_wait_ui_text` polls `dump_ui`
 until expected text appears, which makes post-click screen confirmation
 deterministic. `unity_click_ui_text_and_wait` combines the click and expected
-text wait into one QA step.
+text wait into one QA step. `unity_wait_then_click` is the complement: it polls
+`dump_ui` until the requested text appears, then immediately clicks it — useful
+for buttons that appear after a variable-length animation or load screen where
+the exact appearance time is unknown.
 Labels that have no direct clickable object can resolve to a nearby clickable
 target; those rows and click responses include `clickResolution=nearest`.
 `dump_ui` filters out off-screen entries by default and reports how many were
