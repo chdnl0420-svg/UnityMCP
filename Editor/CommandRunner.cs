@@ -1340,7 +1340,7 @@ namespace ProjectMQaMcp.Editor
                 response.logs.Add($"{LogPrefix} UICamera.Notify not found; used SendMessage fallback.");
             }
 
-            response.AddOutput("text", GetNguiLabelText(label));
+            response.AddOutput("text", StripNguiBbCode(GetNguiLabelText(label)));
             response.AddOutput("labelPath", GetHierarchyPath(label));
             response.AddOutput("hitPath", GetHierarchyPath(clickTarget.Target));
             response.AddOutput("hitName", clickTarget.Target.name);
@@ -1720,7 +1720,7 @@ namespace ProjectMQaMcp.Editor
                 .Select(x => new
                 {
                     Object = x,
-                    Text = GetNguiLabelText(x)
+                    Text = StripNguiBbCode(GetNguiLabelText(x))
                 })
                 .Where(x => !string.IsNullOrEmpty(x.Text))
                 .ToArray();
