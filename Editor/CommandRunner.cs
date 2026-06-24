@@ -1501,7 +1501,8 @@ namespace ProjectMQaMcp.Editor
                     continue;
                 }
 
-                var text = string.IsNullOrEmpty(label) ? string.Empty : $"\ttext={label}";
+                var strippedLabel = StripNguiBbCode(label);
+                var text = string.IsNullOrEmpty(strippedLabel) ? string.Empty : $"\ttext={strippedLabel}";
                 lines.Add($"{GetHierarchyPath(go)}\t{kind}{coord}{clickCoord}{text}");
             }
 
@@ -1794,6 +1795,13 @@ namespace ProjectMQaMcp.Editor
             }
 
             return null;
+        }
+
+        private static string StripNguiBbCode(string text)
+        {
+            if (string.IsNullOrEmpty(text)) return text;
+            return System.Text.RegularExpressions.Regex.Replace(
+                text, @"\[[A-Fa-f0-9]{6}\]|\[-\]|\[/?(i|b|u|s)\]", "");
         }
 
         private static Camera FindCamera(string cameraName)
