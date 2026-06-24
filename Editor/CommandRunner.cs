@@ -15,6 +15,9 @@ namespace ProjectMQaMcp.Editor
     public static class CommandRunner
     {
         private const string LogPrefix = "[ProjectMQaMcp]";
+        // Monotonic sentinel: bump on every deploy so callers can verify a re-resolved
+        // package actually loaded the new bridge code (absence->presence is unambiguous).
+        private const int BridgeProtocolVersion = 2;
         private const double PollIntervalSeconds = 1.0;
         private const float FallbackClickMaxNormalizedDistanceSqr = 0.18f;
         private const int FallbackClickMinSharedHierarchy = 3;
@@ -162,6 +165,7 @@ namespace ProjectMQaMcp.Editor
 
         private static void AddEditorStatus(CommandResponse response)
         {
+            response.AddOutput("bridgeVersion", BridgeProtocolVersion.ToString());
             response.AddOutput("projectPath", Application.dataPath.Replace("/Assets", ""));
             response.AddOutput("unityVersion", Application.unityVersion);
             response.AddOutput("isBatchMode", Application.isBatchMode.ToString());
