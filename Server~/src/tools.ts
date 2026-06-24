@@ -223,6 +223,41 @@ export function registerTools(server: McpServer): void {
     value: params.value,
     includeInactive: params.includeInactive ?? false,
   })));
+
+  server.tool('unity_set_sprite', 'Sets the spriteName of an NGUI UISprite on a GameObject found by hierarchy path or name.', {
+    ...baseConfigShape,
+    targetPath: z.string().optional(),
+    targetName: z.string().optional(),
+    value: z.string(),
+    includeInactive: z.boolean().optional(),
+    timeoutMs: timeoutSchema,
+  }, async (params) => toToolResult(await unitySimpleCommand(params, 'set_sprite', {
+    targetPath: params.targetPath,
+    targetName: params.targetName,
+    value: params.value,
+    includeInactive: params.includeInactive ?? false,
+  })));
+
+  server.tool('unity_scene_info', 'Reports the active scene, all loaded scenes, and the active scene root GameObjects for QA context.', {
+    ...baseConfigShape,
+    timeoutMs: timeoutSchema,
+  }, async (params) => toToolResult(await unitySimpleCommand(params, 'scene_info', {})));
+
+  server.tool('unity_get_hierarchy', 'Dumps a depth-limited GameObject tree under a path (or the active scene roots), with active/clickable/label hints.', {
+    ...baseConfigShape,
+    targetPath: z.string().optional(),
+    targetName: z.string().optional(),
+    maxDepth: z.number().int().positive().max(20).optional(),
+    maxCount: z.number().int().positive().max(2000).optional(),
+    includeInactive: z.boolean().optional(),
+    timeoutMs: timeoutSchema,
+  }, async (params) => toToolResult(await unitySimpleCommand(params, 'get_hierarchy', {
+    targetPath: params.targetPath,
+    targetName: params.targetName,
+    maxDepth: params.maxDepth,
+    maxCount: params.maxCount,
+    includeInactive: params.includeInactive ?? false,
+  })));
 }
 
 async function unityStatus(params: any): Promise<unknown> {

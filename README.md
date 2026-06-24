@@ -95,6 +95,26 @@ Screenshot responses also report requested dimensions, actual dimensions, and
 `matchesRequestedSize`; set `requireRequestedSize=true` when dimension mismatch
 should fail the tool call.
 
+## Code, QA, and UI Tools
+
+Beyond PlayMode/screenshot/click tools, the server exposes code-iteration, QA
+inspection, and UI mutation tools. See `Documentation~/nx3-unity-mcp.md` for the
+full list. Highlights:
+
+- `unity_recompile` — recompile scripts (or `refresh=true` to reimport assets),
+  wait for the domain reload to settle, and return compile errors. Use this after
+  editing C# so the next QA step runs against fresh code. Scripts only compile in
+  Edit mode, so exit PlayMode first.
+- `unity_compile_status` / `unity_get_console_logs` / `unity_clear_console` —
+  inspect compilation state and the Editor console for errors and warnings.
+- `unity_inspect_object` / `unity_find_objects` / `unity_scene_info` /
+  `unity_get_hierarchy` — discover and inspect scene objects for QA.
+- `unity_set_active` / `unity_set_label_text` / `unity_set_input_text` /
+  `unity_set_sprite` — mutate existing NGUI widgets for UI checks.
+
+New typed tools appear after the MCP server is reconnected. The underlying bridge
+commands are usable immediately through `unity_execute_editor_command`.
+
 ## Recovery Notes
 
 If Unity does not answer a command, inspect:

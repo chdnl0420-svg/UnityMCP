@@ -41,6 +41,33 @@ Supported MVP commands:
 - `batch`
 - `resolve_packages`
 
+Code/compile commands (added in bridge protocol v2-v4):
+
+- `refresh_assets` — `AssetDatabase.Refresh`, reimports and recompiles
+- `recompile_scripts` — `CompilationPipeline.RequestScriptCompilation` (Edit mode only)
+- `compile_status` — `isCompiling`/`isUpdating` plus buffered compile errors
+
+QA inspection commands:
+
+- `get_console_logs` — reads the Editor console (filter by `logType`, cap with `maxCount`)
+- `clear_console` — clears the Editor console
+- `inspect_object` — components, active state, transform, NGUI label/sprite/input, collider bounds
+- `find_objects` — name-substring search returning paths + active/clickable/label hints
+- `scene_info` — active scene, loaded scenes, active-scene root objects
+- `get_hierarchy` — depth-limited GameObject tree under a path (or active-scene roots)
+
+UI mutation commands:
+
+- `set_active` — `GameObject.SetActive` (`value` = `true`/`false`)
+- `set_label_text` — set NGUI `UILabel.text`
+- `set_input_text` — set NGUI `UIInput.value`
+- `set_sprite` — set NGUI `UISprite.spriteName`
+
+Compile errors survive the recompile domain reload by being buffered to
+`<commandRoot>/compile-errors.json` (cleared on `compilationStarted`, appended on
+`assemblyCompilationFinished`). `editor_status`/`ping` report a `bridgeVersion`
+sentinel so a re-resolved package can be verified as actually loaded.
+
 The Node MCP server also exposes higher-level PlayMode helpers:
 
 - `unity_enter_play_mode`
@@ -49,6 +76,14 @@ The Node MCP server also exposes higher-level PlayMode helpers:
 - `unity_wait_ui_text`
 - `unity_click_ui_text_and_wait`
 - `unity_run_ui_text_qa_flow`
+
+And typed wrappers for the commands above:
+
+- `unity_recompile` — triggers recompile/refresh, waits for the domain reload to
+  settle (tolerating the mid-reload bridge outage), and returns compile errors
+- `unity_compile_status`, `unity_get_console_logs`, `unity_clear_console`
+- `unity_inspect_object`, `unity_find_objects`, `unity_scene_info`, `unity_get_hierarchy`
+- `unity_set_active`, `unity_set_label_text`, `unity_set_input_text`, `unity_set_sprite`
 
 The PlayMode helpers call the bridge command first, then poll `editor_status`
 until the requested `isPlaying` state is observed. `unity_click_ui_text` finds a

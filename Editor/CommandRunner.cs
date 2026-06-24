@@ -18,7 +18,7 @@ namespace ProjectMQaMcp.Editor
         private const string LogPrefix = "[ProjectMQaMcp]";
         // Monotonic sentinel: bump on every deploy so callers can verify a re-resolved
         // package actually loaded the new bridge code (absence->presence is unambiguous).
-        private const int BridgeProtocolVersion = 3;
+        private const int BridgeProtocolVersion = 4;
         private const double PollIntervalSeconds = 1.0;
         private const float FallbackClickMaxNormalizedDistanceSqr = 0.18f;
         private const int FallbackClickMinSharedHierarchy = 3;
@@ -192,6 +192,15 @@ namespace ProjectMQaMcp.Editor
                     break;
                 case "set_input_text":
                     SetInputText(parameters, response);
+                    break;
+                case "set_sprite":
+                    SetSprite(parameters, response);
+                    break;
+                case "scene_info":
+                    SceneInfo(response);
+                    break;
+                case "get_hierarchy":
+                    GetHierarchy(parameters, response);
                     break;
                 default:
                     throw new NotSupportedException($"Unsupported command: {request.command}");
@@ -679,6 +688,124 @@ namespace ProjectMQaMcp.Editor
             response.AddOutput("value", GetNguiStringProperty(target, "UIInput", "value") ?? string.Empty);
         }
 
+        private static void SetSprite(CommandParameters parameters, CommandResponse response)
+        {
+            var target = FindTarget(parameters);
+            if (target == null)
+            {
+                response.success = false;
+                response.error = new CommandError { message = "Target object not found (pass targetPath or targetName)." };
+                return;
+            }
+
+            var value = parameters.value ?? string.Empty;
+            if (!SetNguiStringProperty(target, "UISprite", "spriteName", value))
+            {
+                response.success = false;
+                response.error = new CommandError { message = $"No UISprite component on {GetHierarchyPath(target)}." };
+                return;
+            }
+
+            EditorUtility.SetDirty(target);
+            response.AddOutput("path", GetHierarchyPath(target));
+            response.AddOutput("spriteName", GetNguiStringProperty(target, "UISprite", "spriteName") ?? string.Empty);
+        }
+
+        private static void SceneInfo(CommandResponse response)
+        {
+            var active = EditorSceneManager.GetActiveScene();
+            response.AddOutput("activeScene", active.path);
+            response.AddOutput("activeSceneName", active.name);
+            response.AddOutput("isPlaying", Application.isPlaying.ToString());
+
+            var sceneCount = EditorSceneManager.sceneCount;
+            var sceneLines = new List<string>();
+            for (var i = 0; i < sceneCount; i++)
+            {
+                var scene = EditorSceneManager.GetSceneAt(i);
+                sceneLines.Add($"{scene.name}\t{scene.path}\tloaded={scene.isLoaded}");
+            }
+
+            response.AddOutput("loadedSceneCount", sceneCount.ToString());
+            response.AddOutput("scenes", string.Join("\n", sceneLines));
+
+            if (active.isLoaded)
+            {
+                var roots = active.GetRootGameObjects();
+                response.AddOutput("rootCount", roots.Length.ToString());
+                response.AddOutput("roots", string.Join("\n", roots.Select(r => $"{r.name}\tactive={r.activeInHierarchy}")));
+            }
+        }
+
+        private static void GetHierarchy(CommandParameters parameters, CommandResponse response)
+        {
+            var maxDepth = parameters.maxDepth > 0 ? parameters.maxDepth : 4;
+            var maxNodes = parameters.maxCount > 0 ? parameters.maxCount : 200;
+            var lines = new List<string>();
+            var roots = new List<Transform>();
+
+            var target = FindTarget(parameters);
+            if (target != null)
+            {
+                roots.Add(target.transform);
+            }
+            else
+            {
+                var active = EditorSceneManager.GetActiveScene();
+                if (active.isLoaded)
+                {
+                    foreach (var go in active.GetRootGameObjects())
+                    {
+                        roots.Add(go.transform);
+                    }
+                }
+            }
+
+            foreach (var root in roots)
+            {
+                WalkHierarchy(root, 0, maxDepth, maxNodes, lines);
+                if (lines.Count >= maxNodes)
+                {
+                    break;
+                }
+            }
+
+            response.AddOutput("rootCount", roots.Count.ToString());
+            response.AddOutput("maxDepth", maxDepth.ToString());
+            response.AddOutput("count", lines.Count.ToString());
+            response.AddOutput("truncated", (lines.Count >= maxNodes).ToString());
+            response.AddOutput("hierarchy", string.Join("\n", lines));
+        }
+
+        private static void WalkHierarchy(Transform transform, int depth, int maxDepth, int maxNodes, List<string> lines)
+        {
+            if (lines.Count >= maxNodes)
+            {
+                return;
+            }
+
+            var go = transform.gameObject;
+            var indent = new string(' ', depth * 2);
+            var clickable = go.GetComponent<Collider>() != null ? " [clickable]" : string.Empty;
+            var label = GetNguiLabelText(go);
+            var text = string.IsNullOrEmpty(label) ? string.Empty : $" \"{label}\"";
+            lines.Add($"{indent}{go.name}\tactive={go.activeInHierarchy}{clickable}{text}");
+
+            if (depth >= maxDepth)
+            {
+                return;
+            }
+
+            for (var i = 0; i < transform.childCount; i++)
+            {
+                WalkHierarchy(transform.GetChild(i), depth + 1, maxDepth, maxNodes, lines);
+                if (lines.Count >= maxNodes)
+                {
+                    return;
+                }
+            }
+        }
+
         private static string GetNguiStringProperty(GameObject go, string componentName, string propertyName)
         {
             foreach (var component in go.GetComponents<Component>())
@@ -754,6 +881,7 @@ namespace ProjectMQaMcp.Editor
                     expectHitContains = command.expectHitContains,
                     logType = command.logType,
                     maxCount = command.maxCount,
+                    maxDepth = command.maxDepth,
                     value = command.value,
                     nameQuery = command.nameQuery
                 }
@@ -1650,6 +1778,7 @@ namespace ProjectMQaMcp.Editor
         public string expectHitContains;
         public string logType;
         public int maxCount;
+        public int maxDepth;
         public string value;
         public string nameQuery;
         public List<BatchCommand> commands;
@@ -1683,6 +1812,7 @@ namespace ProjectMQaMcp.Editor
         public string expectHitContains;
         public string logType;
         public int maxCount;
+        public int maxDepth;
         public string value;
         public string nameQuery;
     }
