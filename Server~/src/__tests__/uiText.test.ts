@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { EditorCommandResponse } from '../commandBridge.js';
-import { clickUiTextAndWait, findUiTextLine, waitForUiText } from '../uiText.js';
+import { clickUiTextAndWait, findUiTextLine, waitForUiText, waitThenClick } from '../uiText.js';
 
 test('findUiTextLine matches dump_ui text entries', () => {
   const ui = [
@@ -71,6 +71,85 @@ test('clickUiTextAndWait clicks first, then waits for expected text', async () =
   assert.equal(result.polls, 1);
   assert.match(result.matchedLine ?? '', /TAP TO START/);
   assert.deepEqual(calls, ['click_ui_text:SKIP', 'dump_ui:']);
+});
+
+test('waitThenClick waits for text to appear then clicks it', async () => {
+  const calls: string[] = [];
+
+  const result = await waitThenClick({
+    text: 'TAP TO START',
+    exact: true,
+    timeoutMs: 5000,
+    pollIntervalMs: 1,
+    delay: async () => undefined,
+    now: () => 0,
+    execute: async (command, parameters) => {
+      calls.push(`${command}:${parameters.text ?? ''}`);
+      if (command === 'dump_ui') {
+        return response(command, true, [
+          { key: 'ui', value: 'GUIRoot/Login\tlabel\ttext=TAP TO START' },
+        ]);
+      }
+      return response(command, true, [
+        { key: 'hitPath', value: 'GUIRoot/Login' },
+      ]);
+    },
+  });
+
+  assert.equal(result.success, true);
+  assert.equal(result.polls, 1);
+  assert.match(result.matchedLine ?? '', /TAP TO START/);
+  assert.deepEqual(calls, ['dump_ui:', 'click_ui_text:TAP TO START']);
+});
+
+test('waitThenClick returns failure when text never appears', async () => {
+  let elapsed = 0;
+  const calls: string[] = [];
+
+  const result = await waitThenClick({
+    text: 'TAP TO START',
+    exact: true,
+    timeoutMs: 100,
+    pollIntervalMs: 1,
+    delay: async (ms) => { elapsed += ms; },
+    now: () => elapsed,
+    execute: async (command) => {
+      calls.push(command);
+      return response(command, true, [
+        { key: 'ui', value: 'GUIRoot/Splash\tlabel\ttext=LOADING' },
+      ]);
+    },
+  });
+
+  assert.equal(result.success, false);
+  assert.ok(result.error?.message.includes('TAP TO START'));
+  assert.ok(!calls.includes('click_ui_text'), 'click_ui_text must not be called on wait timeout');
+});
+
+test('waitThenClick returns failure when click fails after text appears', async () => {
+  const calls: string[] = [];
+
+  const result = await waitThenClick({
+    text: 'TAP TO START',
+    exact: true,
+    timeoutMs: 5000,
+    pollIntervalMs: 1,
+    delay: async () => undefined,
+    now: () => 0,
+    execute: async (command, parameters) => {
+      calls.push(`${command}:${parameters.text ?? ''}`);
+      if (command === 'dump_ui') {
+        return response(command, true, [
+          { key: 'ui', value: 'GUIRoot/Login\tlabel\ttext=TAP TO START' },
+        ]);
+      }
+      return response(command, false, []);
+    },
+  });
+
+  assert.equal(result.success, false);
+  assert.ok(result.error?.message.includes('TAP TO START'));
+  assert.deepEqual(calls, ['dump_ui:', 'click_ui_text:TAP TO START']);
 });
 
 function response(command: string, success: boolean, outputs: unknown): EditorCommandResponse {

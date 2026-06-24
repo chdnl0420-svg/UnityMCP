@@ -127,7 +127,7 @@ export async function waitThenClick(options: WaitThenClickOptions): Promise<Wait
     lastUi: waitResult.lastUi,
     clickResponse,
     error: clickResponse.success ? undefined : {
-      message: clickResponse.error?.message ?? `click_ui_text failed for "${options.text}"`,
+      message: clickResponse.error?.message || `click_ui_text failed for "${options.text}"`,
     },
   };
 }
