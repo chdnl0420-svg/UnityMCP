@@ -22211,6 +22211,19 @@ function registerTools(server2) {
     maxCount: params.maxCount,
     includeInactive: params.includeInactive ?? false
   })));
+  server2.tool("unity_get_component", "Reads simple-typed public fields/properties of a named component on a GameObject (QA state inspection, e.g. script values).", {
+    ...baseConfigShape,
+    targetPath: external_exports.string().optional(),
+    targetName: external_exports.string().optional(),
+    componentName: external_exports.string().min(1),
+    includeInactive: external_exports.boolean().optional(),
+    timeoutMs: timeoutSchema
+  }, async (params) => toToolResult(await unitySimpleCommand(params, "get_component", {
+    targetPath: params.targetPath,
+    targetName: params.targetName,
+    componentName: params.componentName,
+    includeInactive: params.includeInactive ?? false
+  })));
 }
 async function unityStatus(params) {
   const config2 = resolveProjectConfig(params);

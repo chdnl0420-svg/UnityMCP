@@ -18,7 +18,7 @@ namespace ProjectMQaMcp.Editor
         private const string LogPrefix = "[ProjectMQaMcp]";
         // Monotonic sentinel: bump on every deploy so callers can verify a re-resolved
         // package actually loaded the new bridge code (absence->presence is unambiguous).
-        private const int BridgeProtocolVersion = 5;
+        private const int BridgeProtocolVersion = 6;
         private const double PollIntervalSeconds = 1.0;
         private const float FallbackClickMaxNormalizedDistanceSqr = 0.18f;
         private const int FallbackClickMinSharedHierarchy = 3;
@@ -201,6 +201,9 @@ namespace ProjectMQaMcp.Editor
                     break;
                 case "get_hierarchy":
                     GetHierarchy(parameters, response);
+                    break;
+                case "get_component":
+                    GetComponent(parameters, response);
                     break;
                 default:
                     throw new NotSupportedException($"Unsupported command: {request.command}");
@@ -781,6 +784,123 @@ namespace ProjectMQaMcp.Editor
             response.AddOutput("hierarchy", string.Join("\n", lines));
         }
 
+        private static void GetComponent(CommandParameters parameters, CommandResponse response)
+        {
+            var target = FindTarget(parameters);
+            if (target == null)
+            {
+                response.success = false;
+                response.error = new CommandError { message = "Target object not found (pass targetPath or targetName)." };
+                return;
+            }
+
+            var componentName = parameters.componentName;
+            if (string.IsNullOrEmpty(componentName))
+            {
+                componentName = parameters.value;
+            }
+            componentName = Require(componentName, "componentName");
+
+            var component = target.GetComponents<Component>()
+                .FirstOrDefault(c => c != null && c.GetType().Name == componentName);
+            if (component == null)
+            {
+                response.success = false;
+                response.error = new CommandError
+                {
+                    message = $"No component '{componentName}' on {GetHierarchyPath(target)}."
+                };
+                response.AddOutput("availableComponents", string.Join(",", target.GetComponents<Component>()
+                    .Where(c => c != null).Select(c => c.GetType().Name)));
+                return;
+            }
+
+            var type = component.GetType();
+            var lines = new List<string>();
+            var skipped = 0;
+
+            // Only emit simple, side-effect-free members. Each read is guarded so a
+            // throwing Unity property degrades to a skip instead of failing the command.
+            foreach (var field in type.GetFields(BindingFlags.Public | BindingFlags.Instance))
+            {
+                if (!TryFormatMember(field.Name, () => field.GetValue(component), lines))
+                {
+                    skipped++;
+                }
+            }
+
+            foreach (var property in type.GetProperties(BindingFlags.Public | BindingFlags.Instance))
+            {
+                if (!property.CanRead || property.GetIndexParameters().Length > 0)
+                {
+                    continue;
+                }
+
+                if (!TryFormatMember(property.Name, () => property.GetValue(component, null), lines))
+                {
+                    skipped++;
+                }
+            }
+
+            response.AddOutput("component", componentName);
+            response.AddOutput("path", GetHierarchyPath(target));
+            response.AddOutput("count", lines.Count.ToString());
+            response.AddOutput("skipped", skipped.ToString());
+            response.AddOutput("fields", string.Join("\n", lines));
+        }
+
+        private static bool TryFormatMember(string name, Func<object> read, List<string> lines)
+        {
+            try
+            {
+                var value = read();
+                if (!TryFormatSimpleValue(value, out var formatted))
+                {
+                    return false;
+                }
+
+                lines.Add($"{name}={formatted}");
+                return true;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        private static bool TryFormatSimpleValue(object value, out string formatted)
+        {
+            formatted = null;
+            if (value == null)
+            {
+                formatted = "null";
+                return true;
+            }
+
+            var type = value.GetType();
+            if (type.IsPrimitive || type.IsEnum || value is string || value is decimal)
+            {
+                formatted = value.ToString();
+            }
+            else if (value is Vector2 || value is Vector3 || value is Vector4 ||
+                value is Quaternion || value is Color || value is Color32 ||
+                value is Rect || value is Bounds)
+            {
+                formatted = value.ToString();
+            }
+            else
+            {
+                return false;
+            }
+
+            if (formatted != null && formatted.Length > 200)
+            {
+                formatted = formatted.Substring(0, 200) + "...";
+            }
+
+            return true;
+        }
+
         private static void WalkHierarchy(Transform transform, int depth, int maxDepth, int maxNodes, List<string> lines)
         {
             if (lines.Count >= maxNodes)
@@ -887,7 +1007,8 @@ namespace ProjectMQaMcp.Editor
                     maxCount = command.maxCount,
                     maxDepth = command.maxDepth,
                     value = command.value,
-                    nameQuery = command.nameQuery
+                    nameQuery = command.nameQuery,
+                    componentName = command.componentName
                 }
             };
         }
@@ -1785,6 +1906,7 @@ namespace ProjectMQaMcp.Editor
         public int maxDepth;
         public string value;
         public string nameQuery;
+        public string componentName;
         public List<BatchCommand> commands;
     }
 
@@ -1819,6 +1941,7 @@ namespace ProjectMQaMcp.Editor
         public int maxDepth;
         public string value;
         public string nameQuery;
+        public string componentName;
     }
 
     [Serializable]

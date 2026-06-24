@@ -55,6 +55,7 @@ QA inspection commands:
 - `find_objects` — name-substring search returning paths + active/clickable/label hints
 - `scene_info` — active scene, loaded scenes, active-scene root objects
 - `get_hierarchy` — depth-limited GameObject tree under a path (or active-scene roots)
+- `get_component` — simple-typed public fields/properties of a named component (script state)
 
 UI mutation commands:
 
@@ -82,7 +83,7 @@ And typed wrappers for the commands above:
 - `unity_recompile` — triggers recompile/refresh, waits for the domain reload to
   settle (tolerating the mid-reload bridge outage), and returns compile errors
 - `unity_compile_status`, `unity_get_console_logs`, `unity_clear_console`
-- `unity_inspect_object`, `unity_find_objects`, `unity_scene_info`, `unity_get_hierarchy`
+- `unity_inspect_object`, `unity_find_objects`, `unity_scene_info`, `unity_get_hierarchy`, `unity_get_component`
 - `unity_set_active`, `unity_set_label_text`, `unity_set_input_text`, `unity_set_sprite`
 
 The PlayMode helpers call the bridge command first, then poll `editor_status`

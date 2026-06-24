@@ -258,6 +258,20 @@ export function registerTools(server: McpServer): void {
     maxCount: params.maxCount,
     includeInactive: params.includeInactive ?? false,
   })));
+
+  server.tool('unity_get_component', 'Reads simple-typed public fields/properties of a named component on a GameObject (QA state inspection, e.g. script values).', {
+    ...baseConfigShape,
+    targetPath: z.string().optional(),
+    targetName: z.string().optional(),
+    componentName: z.string().min(1),
+    includeInactive: z.boolean().optional(),
+    timeoutMs: timeoutSchema,
+  }, async (params) => toToolResult(await unitySimpleCommand(params, 'get_component', {
+    targetPath: params.targetPath,
+    targetName: params.targetName,
+    componentName: params.componentName,
+    includeInactive: params.includeInactive ?? false,
+  })));
 }
 
 async function unityStatus(params: any): Promise<unknown> {
