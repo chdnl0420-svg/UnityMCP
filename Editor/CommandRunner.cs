@@ -18,7 +18,7 @@ namespace ProjectMQaMcp.Editor
         private const string LogPrefix = "[ProjectMQaMcp]";
         // Monotonic sentinel: bump on every deploy so callers can verify a re-resolved
         // package actually loaded the new bridge code (absence->presence is unambiguous).
-        private const int BridgeProtocolVersion = 4;
+        private const int BridgeProtocolVersion = 5;
         private const double PollIntervalSeconds = 1.0;
         private const float FallbackClickMaxNormalizedDistanceSqr = 0.18f;
         private const int FallbackClickMinSharedHierarchy = 3;
@@ -332,9 +332,13 @@ namespace ProjectMQaMcp.Editor
                 return;
             }
 
+            // CompilerMessage.message already includes the "file(line,col): error CSxxxx:"
+            // prefix, so emit it as-is; fall back to a built prefix only if it does not.
             var errors = messages
                 .Where(m => m.type == CompilerMessageType.Error)
-                .Select(m => $"{m.file}({m.line},{m.column}): {m.message}")
+                .Select(m => string.IsNullOrEmpty(m.file) || m.message.Contains(m.file)
+                    ? m.message
+                    : $"{m.file}({m.line},{m.column}): {m.message}")
                 .ToList();
             if (errors.Count > 0)
             {
