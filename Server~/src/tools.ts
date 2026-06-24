@@ -10,7 +10,7 @@ import { fileSize, pathExists, readTail } from './utils/files.js';
 import { summarizeEditorLog } from './utils/editorLog.js';
 import { findStaleCandidates, killProcess, listUnityRelatedProcesses } from './processes.js';
 import { normalizeOutputs, setPlayModeAndWait } from './playMode.js';
-import { clickUiTextAndWait, waitForUiText } from './uiText.js';
+import { clickUiTextAndWait, waitForUiText, waitThenClick } from './uiText.js';
 import { runUiTextQaFlow } from './qaFlow.js';
 import { verifyScreenshotResponse } from './screenshot.js';
 import { recompileAndWait } from './recompile.js';
@@ -96,6 +96,15 @@ export function registerTools(server: McpServer): void {
     timeoutMs: timeoutSchema,
     pollIntervalMs: z.number().int().positive().max(10000).optional(),
   }, async (params) => toToolResult(await unityClickUiTextAndWait(params)));
+
+  server.tool('unity_wait_then_click', 'Polls dump_ui until the requested text appears, then clicks it. Useful for buttons that appear after a variable-length animation or load.', {
+    ...baseConfigShape,
+    text: z.string().min(1),
+    exact: z.boolean().optional(),
+    includeInactive: z.boolean().optional(),
+    timeoutMs: timeoutSchema,
+    pollIntervalMs: z.number().int().positive().max(10000).optional(),
+  }, async (params) => toToolResult(await unityWaitThenClick(params)));
 
   server.tool('unity_run_ui_text_qa_flow', 'Runs a full PlayMode UI text QA flow: enter, wait, screenshot, click, wait, screenshot, and optional exit.', {
     ...baseConfigShape,
@@ -461,6 +470,27 @@ async function unityRunUiTextQaFlow(params: any): Promise<unknown> {
 async function unityWaitUiText(params: any): Promise<unknown> {
   const config = resolveProjectConfig(params);
   return waitForUiText({
+    text: params.text,
+    exact: params.exact ?? false,
+    includeInactive: params.includeInactive ?? false,
+    timeoutMs: params.timeoutMs ?? 30000,
+    pollIntervalMs: params.pollIntervalMs ?? 500,
+    commandTimeoutMs: Math.min(params.timeoutMs ?? 15000, 15000),
+    execute: (command, parameters, timeoutMs) => executeEditorCommand({
+      unityPath: config.unityPath,
+      projectPath: config.projectPath,
+      commandRoot: config.commandRoot,
+      command,
+      parameters,
+      timeoutMs,
+      runOnce: false,
+    }),
+  });
+}
+
+async function unityWaitThenClick(params: any): Promise<unknown> {
+  const config = resolveProjectConfig(params);
+  return waitThenClick({
     text: params.text,
     exact: params.exact ?? false,
     includeInactive: params.includeInactive ?? false,

@@ -21558,6 +21558,51 @@ function defaultDelay(ms) {
 }
 
 // src/uiText.ts
+async function waitThenClick(options) {
+  const now = options.now ?? (() => Date.now());
+  const exact = options.exact ?? false;
+  const commandTimeoutMs = options.commandTimeoutMs ?? 15e3;
+  const startedAt = now();
+  const waitResult = await waitForUiText({
+    text: options.text,
+    exact,
+    includeInactive: options.includeInactive,
+    timeoutMs: options.timeoutMs,
+    pollIntervalMs: options.pollIntervalMs,
+    commandTimeoutMs,
+    execute: options.execute,
+    delay: options.delay,
+    now
+  });
+  if (!waitResult.success) {
+    return {
+      success: false,
+      text: options.text,
+      exact,
+      elapsedMs: now() - startedAt,
+      polls: waitResult.polls,
+      lastUi: waitResult.lastUi,
+      error: waitResult.error
+    };
+  }
+  const clickResponse = await options.execute("click_ui_text", {
+    text: options.text,
+    includeInactive: options.includeInactive ?? false
+  }, commandTimeoutMs);
+  return {
+    success: clickResponse.success,
+    text: options.text,
+    exact,
+    elapsedMs: now() - startedAt,
+    polls: waitResult.polls,
+    matchedLine: waitResult.matchedLine,
+    lastUi: waitResult.lastUi,
+    clickResponse,
+    error: clickResponse.success ? void 0 : {
+      message: clickResponse.error?.message ?? `click_ui_text failed for "${options.text}"`
+    }
+  };
+}
 async function clickUiTextAndWait(options) {
   const now = options.now ?? (() => Date.now());
   const exact = options.exact ?? false;
@@ -22065,6 +22110,14 @@ function registerTools(server2) {
     timeoutMs: timeoutSchema,
     pollIntervalMs: external_exports.number().int().positive().max(1e4).optional()
   }, async (params) => toToolResult(await unityClickUiTextAndWait(params)));
+  server2.tool("unity_wait_then_click", "Polls dump_ui until the requested text appears, then clicks it. Useful for buttons that appear after a variable-length animation or load.", {
+    ...baseConfigShape,
+    text: external_exports.string().min(1),
+    exact: external_exports.boolean().optional(),
+    includeInactive: external_exports.boolean().optional(),
+    timeoutMs: timeoutSchema,
+    pollIntervalMs: external_exports.number().int().positive().max(1e4).optional()
+  }, async (params) => toToolResult(await unityWaitThenClick(params)));
   server2.tool("unity_run_ui_text_qa_flow", "Runs a full PlayMode UI text QA flow: enter, wait, screenshot, click, wait, screenshot, and optional exit.", {
     ...baseConfigShape,
     initialText: external_exports.string().min(1),
@@ -22400,6 +22453,26 @@ async function unityRunUiTextQaFlow(params) {
 async function unityWaitUiText(params) {
   const config2 = resolveProjectConfig(params);
   return waitForUiText({
+    text: params.text,
+    exact: params.exact ?? false,
+    includeInactive: params.includeInactive ?? false,
+    timeoutMs: params.timeoutMs ?? 3e4,
+    pollIntervalMs: params.pollIntervalMs ?? 500,
+    commandTimeoutMs: Math.min(params.timeoutMs ?? 15e3, 15e3),
+    execute: (command, parameters, timeoutMs) => executeEditorCommand({
+      unityPath: config2.unityPath,
+      projectPath: config2.projectPath,
+      commandRoot: config2.commandRoot,
+      command,
+      parameters,
+      timeoutMs,
+      runOnce: false
+    })
+  });
+}
+async function unityWaitThenClick(params) {
+  const config2 = resolveProjectConfig(params);
+  return waitThenClick({
     text: params.text,
     exact: params.exact ?? false,
     includeInactive: params.includeInactive ?? false,

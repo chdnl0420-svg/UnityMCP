@@ -56,6 +56,82 @@ export interface ClickUiTextAndWaitResult {
   };
 }
 
+export interface WaitThenClickOptions {
+  text: string;
+  exact?: boolean;
+  includeInactive?: boolean;
+  timeoutMs: number;
+  pollIntervalMs?: number;
+  commandTimeoutMs?: number;
+  execute: (command: string, parameters: Record<string, unknown>, timeoutMs: number) => Promise<EditorCommandResponse>;
+  delay?: (ms: number) => Promise<void>;
+  now?: () => number;
+}
+
+export interface WaitThenClickResult {
+  success: boolean;
+  text: string;
+  exact: boolean;
+  elapsedMs: number;
+  polls: number;
+  matchedLine?: string;
+  lastUi?: string;
+  clickResponse?: EditorCommandResponse;
+  error?: {
+    message: string;
+  };
+}
+
+export async function waitThenClick(options: WaitThenClickOptions): Promise<WaitThenClickResult> {
+  const now = options.now ?? (() => Date.now());
+  const exact = options.exact ?? false;
+  const commandTimeoutMs = options.commandTimeoutMs ?? 15000;
+  const startedAt = now();
+
+  const waitResult = await waitForUiText({
+    text: options.text,
+    exact,
+    includeInactive: options.includeInactive,
+    timeoutMs: options.timeoutMs,
+    pollIntervalMs: options.pollIntervalMs,
+    commandTimeoutMs,
+    execute: options.execute,
+    delay: options.delay,
+    now,
+  });
+
+  if (!waitResult.success) {
+    return {
+      success: false,
+      text: options.text,
+      exact,
+      elapsedMs: now() - startedAt,
+      polls: waitResult.polls,
+      lastUi: waitResult.lastUi,
+      error: waitResult.error,
+    };
+  }
+
+  const clickResponse = await options.execute('click_ui_text', {
+    text: options.text,
+    includeInactive: options.includeInactive ?? false,
+  }, commandTimeoutMs);
+
+  return {
+    success: clickResponse.success,
+    text: options.text,
+    exact,
+    elapsedMs: now() - startedAt,
+    polls: waitResult.polls,
+    matchedLine: waitResult.matchedLine,
+    lastUi: waitResult.lastUi,
+    clickResponse,
+    error: clickResponse.success ? undefined : {
+      message: clickResponse.error?.message ?? `click_ui_text failed for "${options.text}"`,
+    },
+  };
+}
+
 export async function clickUiTextAndWait(options: ClickUiTextAndWaitOptions): Promise<ClickUiTextAndWaitResult> {
   const now = options.now ?? (() => Date.now());
   const exact = options.exact ?? false;
