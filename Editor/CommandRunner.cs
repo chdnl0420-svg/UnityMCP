@@ -1316,6 +1316,18 @@ namespace ProjectMQaMcp.Editor
                 return;
             }
 
+            if (clickTarget.Resolution == "overlap")
+            {
+                response.success = false;
+                response.error = new CommandError
+                {
+                    message = $"UI text \"{text}\" is an info-only label (overlap) — it sits over an unrelated widget and is not directly clickable. Click the button text instead."
+                };
+                response.AddOutput("labelPath", GetHierarchyPath(label));
+                response.AddOutput("overlapTarget", GetHierarchyPath(clickTarget.Target));
+                return;
+            }
+
             var clickCollider = clickTarget.Target.GetComponent<Collider>();
             var clickWorld = clickCollider != null ? clickCollider.bounds.center : clickTarget.Target.transform.position;
             var clickScreen = uiCamera.WorldToScreenPoint(clickWorld);
