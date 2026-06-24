@@ -21891,6 +21891,109 @@ function finishFailure(result, startedAt, now, message) {
   return result;
 }
 
+// src/recompile.ts
+async function recompileAndWait(options) {
+  const now = options.now ?? (() => Date.now());
+  const delay2 = options.delay ?? ((ms) => new Promise((resolve) => setTimeout(resolve, ms)));
+  const pollIntervalMs = options.pollIntervalMs ?? 750;
+  const commandTimeoutMs = options.commandTimeoutMs ?? 15e3;
+  const settleConfirm = options.settleConfirm ?? 2;
+  const command = options.refresh ? "refresh_assets" : "recompile_scripts";
+  const startedAt = now();
+  const triggerResponse = await options.execute(command, {}, commandTimeoutMs);
+  if (!triggerResponse.success) {
+    return {
+      success: false,
+      command,
+      triggered: false,
+      sawCompiling: false,
+      isCompiling: void 0,
+      isUpdating: void 0,
+      compileErrorCount: 0,
+      compileErrors: [],
+      elapsedMs: now() - startedAt,
+      polls: 0,
+      timedOut: false,
+      triggerResponse,
+      error: {
+        message: triggerResponse.error?.message ?? `${command} failed`
+      }
+    };
+  }
+  let polls = 0;
+  let sawBusy = false;
+  let idleConfirms = 0;
+  let lastStatus;
+  await delay2(pollIntervalMs);
+  while (now() - startedAt < options.timeoutMs) {
+    const status = await options.execute("compile_status", {}, commandTimeoutMs);
+    polls += 1;
+    if (!status.success) {
+      sawBusy = true;
+      idleConfirms = 0;
+      await delay2(pollIntervalMs);
+      continue;
+    }
+    lastStatus = status;
+    const isCompiling = readBooleanOutput(status.outputs, "isCompiling");
+    const isUpdating = readBooleanOutput(status.outputs, "isUpdating");
+    const busy = isCompiling === true || isUpdating === true;
+    if (busy) {
+      sawBusy = true;
+      idleConfirms = 0;
+      await delay2(pollIntervalMs);
+      continue;
+    }
+    idleConfirms += 1;
+    if (sawBusy || idleConfirms >= settleConfirm) {
+      const errors2 = readCompileErrors(status.outputs);
+      return {
+        success: true,
+        command,
+        triggered: true,
+        sawCompiling: sawBusy,
+        isCompiling,
+        isUpdating,
+        compileErrorCount: errors2.length,
+        compileErrors: errors2,
+        elapsedMs: now() - startedAt,
+        polls,
+        timedOut: false,
+        triggerResponse,
+        lastStatus
+      };
+    }
+    await delay2(pollIntervalMs);
+  }
+  const errors = lastStatus ? readCompileErrors(lastStatus.outputs) : [];
+  return {
+    success: false,
+    command,
+    triggered: true,
+    sawCompiling: sawBusy,
+    isCompiling: lastStatus ? readBooleanOutput(lastStatus.outputs, "isCompiling") : void 0,
+    isUpdating: lastStatus ? readBooleanOutput(lastStatus.outputs, "isUpdating") : void 0,
+    compileErrorCount: errors.length,
+    compileErrors: errors,
+    elapsedMs: now() - startedAt,
+    polls,
+    timedOut: true,
+    triggerResponse,
+    lastStatus,
+    error: {
+      message: `Timed out waiting for compilation to settle after ${options.timeoutMs}ms`
+    }
+  };
+}
+function readCompileErrors(outputs) {
+  const map = normalizeOutputs(outputs);
+  const raw = map["compileErrors"];
+  if (typeof raw !== "string" || raw.length === 0) {
+    return [];
+  }
+  return raw.split("\n").map((line) => line.trim()).filter((line) => line.length > 0);
+}
+
 // src/tools.ts
 var baseConfigShape = {
   unityPath: external_exports.string().optional(),
@@ -21992,6 +22095,90 @@ function registerTools(server2) {
     kill: external_exports.boolean().optional(),
     includeUnity: external_exports.boolean().optional()
   }, async (params) => toToolResult(await unityKillStale(params)));
+  server2.tool("unity_recompile", "Recompiles scripts (or refreshes assets), waits for the domain reload to settle, and reports compile errors. Use after editing C# code.", {
+    ...baseConfigShape,
+    refresh: external_exports.boolean().optional(),
+    timeoutMs: timeoutSchema,
+    pollIntervalMs: external_exports.number().int().positive().max(1e4).optional()
+  }, async (params) => toToolResult(await unityRecompile(params)));
+  server2.tool("unity_compile_status", "Reports whether Unity is compiling/updating and lists buffered compile errors from the last compilation.", {
+    ...baseConfigShape,
+    timeoutMs: timeoutSchema
+  }, async (params) => toToolResult(await unitySimpleCommand(params, "compile_status", {})));
+  server2.tool("unity_get_console_logs", "Reads the Unity Editor console (error/warning/log) for QA evidence and compile-error inspection.", {
+    ...baseConfigShape,
+    logType: external_exports.enum(["all", "error", "warning", "log"]).optional(),
+    maxCount: external_exports.number().int().positive().max(1e3).optional(),
+    timeoutMs: timeoutSchema
+  }, async (params) => toToolResult(await unitySimpleCommand(params, "get_console_logs", {
+    logType: params.logType,
+    maxCount: params.maxCount
+  })));
+  server2.tool("unity_clear_console", "Clears the Unity Editor console so the next QA step starts from a clean log.", {
+    ...baseConfigShape,
+    timeoutMs: timeoutSchema
+  }, async (params) => toToolResult(await unitySimpleCommand(params, "clear_console", {})));
+  server2.tool("unity_inspect_object", "Inspects a GameObject by hierarchy path or name: components, active state, transform, NGUI label/sprite/input, and collider bounds.", {
+    ...baseConfigShape,
+    targetPath: external_exports.string().optional(),
+    targetName: external_exports.string().optional(),
+    includeInactive: external_exports.boolean().optional(),
+    timeoutMs: timeoutSchema
+  }, async (params) => toToolResult(await unitySimpleCommand(params, "inspect_object", {
+    targetPath: params.targetPath,
+    targetName: params.targetName,
+    includeInactive: params.includeInactive ?? false
+  })));
+  server2.tool("unity_find_objects", "Finds active GameObjects whose name contains a query string, returning hierarchy paths, active state, and clickable/label hints.", {
+    ...baseConfigShape,
+    nameQuery: external_exports.string().min(1),
+    includeInactive: external_exports.boolean().optional(),
+    maxCount: external_exports.number().int().positive().max(500).optional(),
+    timeoutMs: timeoutSchema
+  }, async (params) => toToolResult(await unitySimpleCommand(params, "find_objects", {
+    nameQuery: params.nameQuery,
+    includeInactive: params.includeInactive ?? false,
+    maxCount: params.maxCount
+  })));
+  server2.tool("unity_set_active", "Activates or deactivates a GameObject found by hierarchy path or name.", {
+    ...baseConfigShape,
+    targetPath: external_exports.string().optional(),
+    targetName: external_exports.string().optional(),
+    active: external_exports.boolean(),
+    includeInactive: external_exports.boolean().optional(),
+    timeoutMs: timeoutSchema
+  }, async (params) => toToolResult(await unitySimpleCommand(params, "set_active", {
+    targetPath: params.targetPath,
+    targetName: params.targetName,
+    value: String(params.active),
+    includeInactive: params.includeInactive ?? true
+  })));
+  server2.tool("unity_set_label_text", "Sets the text of an NGUI UILabel on a GameObject found by hierarchy path or name.", {
+    ...baseConfigShape,
+    targetPath: external_exports.string().optional(),
+    targetName: external_exports.string().optional(),
+    value: external_exports.string(),
+    includeInactive: external_exports.boolean().optional(),
+    timeoutMs: timeoutSchema
+  }, async (params) => toToolResult(await unitySimpleCommand(params, "set_label_text", {
+    targetPath: params.targetPath,
+    targetName: params.targetName,
+    value: params.value,
+    includeInactive: params.includeInactive ?? false
+  })));
+  server2.tool("unity_set_input_text", "Sets the value of an NGUI UIInput on a GameObject found by hierarchy path or name.", {
+    ...baseConfigShape,
+    targetPath: external_exports.string().optional(),
+    targetName: external_exports.string().optional(),
+    value: external_exports.string(),
+    includeInactive: external_exports.boolean().optional(),
+    timeoutMs: timeoutSchema
+  }, async (params) => toToolResult(await unitySimpleCommand(params, "set_input_text", {
+    targetPath: params.targetPath,
+    targetName: params.targetName,
+    value: params.value,
+    includeInactive: params.includeInactive ?? false
+  })));
 }
 async function unityStatus(params) {
   const config2 = resolveProjectConfig(params);
@@ -22228,6 +22415,37 @@ async function unityKillStale(params) {
     killed,
     candidates
   };
+}
+async function unityRecompile(params) {
+  const config2 = resolveProjectConfig(params);
+  return recompileAndWait({
+    refresh: params.refresh ?? false,
+    timeoutMs: params.timeoutMs ?? 18e4,
+    pollIntervalMs: params.pollIntervalMs ?? 750,
+    commandTimeoutMs: 15e3,
+    execute: (command, parameters, timeoutMs) => executeEditorCommand({
+      unityPath: config2.unityPath,
+      projectPath: config2.projectPath,
+      commandRoot: config2.commandRoot,
+      command,
+      parameters,
+      timeoutMs,
+      runOnce: false
+    })
+  });
+}
+async function unitySimpleCommand(params, command, parameters) {
+  const config2 = resolveProjectConfig(params);
+  const cleaned = Object.fromEntries(Object.entries(parameters).filter(([, value]) => value !== void 0));
+  return executeEditorCommand({
+    unityPath: config2.unityPath,
+    projectPath: config2.projectPath,
+    commandRoot: config2.commandRoot,
+    command,
+    parameters: cleaned,
+    timeoutMs: params.timeoutMs ?? 15e3,
+    runOnce: false
+  });
 }
 function toToolResult(value) {
   return {

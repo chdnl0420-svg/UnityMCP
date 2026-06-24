@@ -5,6 +5,7 @@ using System.IO;
 using System.Linq;
 using System.Reflection;
 using UnityEditor;
+using UnityEditor.Compilation;
 using UnityEditor.SceneManagement;
 using UnityEngine;
 using Object = UnityEngine.Object;
@@ -17,7 +18,7 @@ namespace ProjectMQaMcp.Editor
         private const string LogPrefix = "[ProjectMQaMcp]";
         // Monotonic sentinel: bump on every deploy so callers can verify a re-resolved
         // package actually loaded the new bridge code (absence->presence is unambiguous).
-        private const int BridgeProtocolVersion = 2;
+        private const int BridgeProtocolVersion = 3;
         private const double PollIntervalSeconds = 1.0;
         private const float FallbackClickMaxNormalizedDistanceSqr = 0.18f;
         private const int FallbackClickMinSharedHierarchy = 3;
@@ -29,6 +30,10 @@ namespace ProjectMQaMcp.Editor
         static CommandRunner()
         {
             EditorApplication.update += Poll;
+            // Buffer compile errors to a file so they survive the domain reload that a
+            // recompile triggers (static fields reset on reload, a file does not).
+            CompilationPipeline.compilationStarted += OnCompilationStarted;
+            CompilationPipeline.assemblyCompilationFinished += OnAssemblyCompilationFinished;
         }
 
         public static void RunOnce()
@@ -158,6 +163,36 @@ namespace ProjectMQaMcp.Editor
                 case "resolve_packages":
                     ResolvePackages(response);
                     break;
+                case "refresh_assets":
+                    RefreshAssets(response);
+                    break;
+                case "recompile_scripts":
+                    RecompileScripts(response);
+                    break;
+                case "compile_status":
+                    CompileStatus(response);
+                    break;
+                case "get_console_logs":
+                    GetConsoleLogs(parameters, response);
+                    break;
+                case "clear_console":
+                    ClearConsole(response);
+                    break;
+                case "inspect_object":
+                    InspectObject(parameters, response);
+                    break;
+                case "find_objects":
+                    FindObjects(parameters, response);
+                    break;
+                case "set_active":
+                    SetActive(parameters, response);
+                    break;
+                case "set_label_text":
+                    SetLabelText(parameters, response);
+                    break;
+                case "set_input_text":
+                    SetInputText(parameters, response);
+                    break;
                 default:
                     throw new NotSupportedException($"Unsupported command: {request.command}");
             }
@@ -233,6 +268,456 @@ namespace ProjectMQaMcp.Editor
             response.AddOutput("requestedResolve", "true");
         }
 
+        private static void RefreshAssets(CommandResponse response)
+        {
+            // Reimports changed assets and triggers script recompilation. Unity defers
+            // compilation while in PlayMode, so report that so callers can exit first.
+            AssetDatabase.Refresh(ImportAssetOptions.Default);
+            response.AddOutput("requestedRefresh", "true");
+            response.AddOutput("isPlaying", Application.isPlaying.ToString());
+            response.AddOutput("isCompiling", EditorApplication.isCompiling.ToString());
+        }
+
+        private static void RecompileScripts(CommandResponse response)
+        {
+            if (Application.isPlaying)
+            {
+                // Scripts cannot compile during PlayMode; make the no-op explicit.
+                response.success = false;
+                response.error = new CommandError
+                {
+                    message = "Cannot recompile scripts while in PlayMode. Exit play mode first."
+                };
+                response.AddOutput("isPlaying", "True");
+                return;
+            }
+
+            ClearCompileErrorFile();
+            CompilationPipeline.RequestScriptCompilation();
+            response.AddOutput("requestedRecompile", "true");
+            response.AddOutput("isCompiling", EditorApplication.isCompiling.ToString());
+        }
+
+        private static void CompileStatus(CommandResponse response)
+        {
+            var errors = ReadCompileErrorFile();
+            response.AddOutput("isCompiling", EditorApplication.isCompiling.ToString());
+            response.AddOutput("isUpdating", EditorApplication.isUpdating.ToString());
+            response.AddOutput("isPlaying", Application.isPlaying.ToString());
+            response.AddOutput("compileErrorCount", errors.Count.ToString());
+            if (errors.Count > 0)
+            {
+                response.AddOutput("compileErrors", string.Join("\n", errors));
+            }
+        }
+
+        private static void OnCompilationStarted(object context)
+        {
+            ClearCompileErrorFile();
+        }
+
+        private static void OnAssemblyCompilationFinished(string assemblyPath, CompilerMessage[] messages)
+        {
+            if (messages == null || messages.Length == 0)
+            {
+                return;
+            }
+
+            var errors = messages
+                .Where(m => m.type == CompilerMessageType.Error)
+                .Select(m => $"{m.file}({m.line},{m.column}): {m.message}")
+                .ToList();
+            if (errors.Count > 0)
+            {
+                AppendCompileErrors(errors);
+            }
+        }
+
+        private static string CompileErrorFilePath()
+        {
+            return Path.Combine(GetCommandRoot(), "compile-errors.json");
+        }
+
+        private static void ClearCompileErrorFile()
+        {
+            try
+            {
+                Directory.CreateDirectory(GetCommandRoot());
+                File.WriteAllText(CompileErrorFilePath(), JsonUtility.ToJson(new CompileErrorLog()));
+            }
+            catch (Exception e)
+            {
+                UnityEngine.Debug.LogWarning($"{LogPrefix} failed to clear compile-errors file: {e.Message}");
+            }
+        }
+
+        private static void AppendCompileErrors(List<string> newErrors)
+        {
+            try
+            {
+                var log = ReadCompileErrorLog();
+                log.errors.AddRange(newErrors);
+                File.WriteAllText(CompileErrorFilePath(), JsonUtility.ToJson(log));
+            }
+            catch (Exception e)
+            {
+                UnityEngine.Debug.LogWarning($"{LogPrefix} failed to append compile errors: {e.Message}");
+            }
+        }
+
+        private static List<string> ReadCompileErrorFile()
+        {
+            return ReadCompileErrorLog().errors;
+        }
+
+        private static CompileErrorLog ReadCompileErrorLog()
+        {
+            try
+            {
+                var path = CompileErrorFilePath();
+                if (!File.Exists(path))
+                {
+                    return new CompileErrorLog();
+                }
+
+                var log = JsonUtility.FromJson<CompileErrorLog>(File.ReadAllText(path));
+                return log ?? new CompileErrorLog();
+            }
+            catch
+            {
+                return new CompileErrorLog();
+            }
+        }
+
+        private static void GetConsoleLogs(CommandParameters parameters, CommandResponse response)
+        {
+            // Reads the actual Editor console via the internal LogEntries API. This is
+            // version-specific reflection, so every step is guarded: a reflection miss
+            // degrades to an empty result with a note instead of throwing.
+            var typeFilter = string.IsNullOrEmpty(parameters.logType) ? "all" : parameters.logType.ToLowerInvariant();
+            var maxCount = parameters.maxCount > 0 ? parameters.maxCount : 100;
+            var entries = new List<string>();
+            var counts = new Dictionary<string, int> { { "error", 0 }, { "warning", 0 }, { "log", 0 } };
+
+            try
+            {
+                var logEntriesType = typeof(EditorApplication).Assembly.GetType("UnityEditor.LogEntries");
+                var logEntryType = typeof(EditorApplication).Assembly.GetType("UnityEditor.LogEntry");
+                if (logEntriesType == null || logEntryType == null)
+                {
+                    response.AddOutput("reflectionAvailable", "false");
+                    response.AddOutput("count", "0");
+                    return;
+                }
+
+                var getCount = logEntriesType.GetMethod("GetCount", BindingFlags.Public | BindingFlags.Static);
+                var startGetting = logEntriesType.GetMethod("StartGettingEntries", BindingFlags.Public | BindingFlags.Static);
+                var endGetting = logEntriesType.GetMethod("EndGettingEntries", BindingFlags.Public | BindingFlags.Static);
+                var getEntry = logEntriesType.GetMethod("GetEntryInternal", BindingFlags.Public | BindingFlags.Static);
+                var messageField = logEntryType.GetField("message", BindingFlags.Public | BindingFlags.Instance);
+                var modeField = logEntryType.GetField("mode", BindingFlags.Public | BindingFlags.Instance);
+                if (getCount == null || startGetting == null || endGetting == null || getEntry == null ||
+                    messageField == null || modeField == null)
+                {
+                    response.AddOutput("reflectionAvailable", "false");
+                    response.AddOutput("count", "0");
+                    return;
+                }
+
+                var total = (int)getCount.Invoke(null, null);
+                startGetting.Invoke(null, null);
+                try
+                {
+                    var entry = Activator.CreateInstance(logEntryType);
+                    for (var i = 0; i < total; i++)
+                    {
+                        getEntry.Invoke(null, new[] { i, entry });
+                        var message = messageField.GetValue(entry) as string ?? string.Empty;
+                        var mode = (int)modeField.GetValue(entry);
+                        var kind = ClassifyLogMode(mode);
+                        if (counts.ContainsKey(kind))
+                        {
+                            counts[kind]++;
+                        }
+
+                        if (typeFilter != "all" && typeFilter != kind)
+                        {
+                            continue;
+                        }
+
+                        var firstLine = message.Replace("\r", " ").Split('\n')[0];
+                        entries.Add($"[{kind}] {firstLine}");
+                    }
+                }
+                finally
+                {
+                    endGetting.Invoke(null, null);
+                }
+
+                // Most recent entries are last; keep the tail and present newest first.
+                if (entries.Count > maxCount)
+                {
+                    entries = entries.GetRange(entries.Count - maxCount, maxCount);
+                }
+                entries.Reverse();
+
+                response.AddOutput("reflectionAvailable", "true");
+                response.AddOutput("totalEntries", total.ToString());
+                response.AddOutput("errorCount", counts["error"].ToString());
+                response.AddOutput("warningCount", counts["warning"].ToString());
+                response.AddOutput("logCount", counts["log"].ToString());
+                response.AddOutput("count", entries.Count.ToString());
+                response.AddOutput("logs", string.Join("\n", entries));
+            }
+            catch (Exception e)
+            {
+                response.AddOutput("reflectionAvailable", "false");
+                response.AddOutput("reflectionError", e.Message);
+                response.AddOutput("count", entries.Count.ToString());
+                response.AddOutput("logs", string.Join("\n", entries));
+            }
+        }
+
+        private static string ClassifyLogMode(int mode)
+        {
+            // Mode is a bitmask of UnityEditor console flags. We only need a coarse
+            // error/warning/log split, so we test the well-known error/warning bits.
+            const int errorBits = (1 << 0) | (1 << 1) | (1 << 4) | (1 << 6) | (1 << 8) |
+                (1 << 11) | (1 << 13) | (1 << 15) | (1 << 17);
+            const int warningBits = (1 << 7) | (1 << 9) | (1 << 12);
+            if ((mode & errorBits) != 0)
+            {
+                return "error";
+            }
+
+            if ((mode & warningBits) != 0)
+            {
+                return "warning";
+            }
+
+            return "log";
+        }
+
+        private static void ClearConsole(CommandResponse response)
+        {
+            try
+            {
+                var logEntriesType = typeof(EditorApplication).Assembly.GetType("UnityEditor.LogEntries");
+                var clear = logEntriesType?.GetMethod("Clear", BindingFlags.Public | BindingFlags.Static);
+                if (clear == null)
+                {
+                    response.success = false;
+                    response.error = new CommandError { message = "LogEntries.Clear not available." };
+                    return;
+                }
+
+                clear.Invoke(null, null);
+                response.AddOutput("cleared", "true");
+            }
+            catch (Exception e)
+            {
+                response.success = false;
+                response.error = new CommandError { message = e.Message };
+            }
+        }
+
+        private static void InspectObject(CommandParameters parameters, CommandResponse response)
+        {
+            var target = FindTarget(parameters);
+            if (target == null)
+            {
+                response.success = false;
+                response.error = new CommandError { message = "Target object not found (pass targetPath or targetName)." };
+                return;
+            }
+
+            response.AddOutput("path", GetHierarchyPath(target));
+            response.AddOutput("name", target.name);
+            response.AddOutput("activeSelf", target.activeSelf.ToString());
+            response.AddOutput("activeInHierarchy", target.activeInHierarchy.ToString());
+            response.AddOutput("tag", target.tag);
+            response.AddOutput("layer", LayerMask.LayerToName(target.layer));
+            var pos = target.transform.position;
+            response.AddOutput("worldPosition", $"{pos.x:F3},{pos.y:F3},{pos.z:F3}");
+            var local = target.transform.localPosition;
+            response.AddOutput("localPosition", $"{local.x:F3},{local.y:F3},{local.z:F3}");
+            response.AddOutput("childCount", target.transform.childCount.ToString());
+
+            var components = target.GetComponents<Component>()
+                .Where(c => c != null)
+                .Select(c => c.GetType().Name)
+                .ToList();
+            response.AddOutput("components", string.Join(",", components));
+
+            var label = GetNguiLabelText(target);
+            if (!string.IsNullOrEmpty(label))
+            {
+                response.AddOutput("labelText", label);
+            }
+
+            var collider = target.GetComponent<Collider>();
+            if (collider != null)
+            {
+                var b = collider.bounds;
+                response.AddOutput("colliderCenter", $"{b.center.x:F3},{b.center.y:F3},{b.center.z:F3}");
+                response.AddOutput("colliderSize", $"{b.size.x:F3},{b.size.y:F3},{b.size.z:F3}");
+            }
+
+            var spriteName = GetNguiStringProperty(target, "UISprite", "spriteName");
+            if (!string.IsNullOrEmpty(spriteName))
+            {
+                response.AddOutput("spriteName", spriteName);
+            }
+
+            var inputValue = GetNguiStringProperty(target, "UIInput", "value");
+            if (inputValue != null)
+            {
+                response.AddOutput("inputValue", inputValue);
+            }
+        }
+
+        private static void FindObjects(CommandParameters parameters, CommandResponse response)
+        {
+            var query = parameters.nameQuery ?? parameters.targetName ?? string.Empty;
+            if (string.IsNullOrEmpty(query))
+            {
+                throw new ArgumentException("find_objects requires nameQuery.");
+            }
+
+            var maxCount = parameters.maxCount > 0 ? parameters.maxCount : 50;
+            var matches = Resources.FindObjectsOfTypeAll<GameObject>()
+                .Where(x => !EditorUtility.IsPersistent(x))
+                .Where(x => parameters.includeInactive || x.activeInHierarchy)
+                .Where(x => x.name.IndexOf(query, StringComparison.OrdinalIgnoreCase) >= 0)
+                .ToList();
+
+            var lines = new List<string>();
+            foreach (var go in matches)
+            {
+                if (lines.Count >= maxCount)
+                {
+                    break;
+                }
+
+                var hasCollider = go.GetComponent<Collider>() != null ? "\tclickable" : string.Empty;
+                var label = GetNguiLabelText(go);
+                var text = string.IsNullOrEmpty(label) ? string.Empty : $"\ttext={label}";
+                lines.Add($"{GetHierarchyPath(go)}\tactive={go.activeInHierarchy}{hasCollider}{text}");
+            }
+
+            response.AddOutput("query", query);
+            response.AddOutput("totalMatches", matches.Count.ToString());
+            response.AddOutput("count", lines.Count.ToString());
+            response.AddOutput("objects", string.Join("\n", lines));
+        }
+
+        private static void SetActive(CommandParameters parameters, CommandResponse response)
+        {
+            var target = FindTarget(parameters);
+            if (target == null)
+            {
+                response.success = false;
+                response.error = new CommandError { message = "Target object not found (pass targetPath or targetName)." };
+                return;
+            }
+
+            var value = Require(parameters.value, "value");
+            if (!bool.TryParse(value, out var active))
+            {
+                throw new ArgumentException($"set_active value must be 'true' or 'false', got '{value}'.");
+            }
+
+            target.SetActive(active);
+            response.AddOutput("path", GetHierarchyPath(target));
+            response.AddOutput("activeSelf", target.activeSelf.ToString());
+            response.AddOutput("activeInHierarchy", target.activeInHierarchy.ToString());
+        }
+
+        private static void SetLabelText(CommandParameters parameters, CommandResponse response)
+        {
+            var target = FindTarget(parameters);
+            if (target == null)
+            {
+                response.success = false;
+                response.error = new CommandError { message = "Target object not found (pass targetPath or targetName)." };
+                return;
+            }
+
+            var value = parameters.value ?? string.Empty;
+            if (!SetNguiStringProperty(target, "UILabel", "text", value))
+            {
+                response.success = false;
+                response.error = new CommandError { message = $"No UILabel component on {GetHierarchyPath(target)}." };
+                return;
+            }
+
+            EditorUtility.SetDirty(target);
+            response.AddOutput("path", GetHierarchyPath(target));
+            response.AddOutput("text", GetNguiLabelText(target));
+        }
+
+        private static void SetInputText(CommandParameters parameters, CommandResponse response)
+        {
+            var target = FindTarget(parameters);
+            if (target == null)
+            {
+                response.success = false;
+                response.error = new CommandError { message = "Target object not found (pass targetPath or targetName)." };
+                return;
+            }
+
+            var value = parameters.value ?? string.Empty;
+            if (!SetNguiStringProperty(target, "UIInput", "value", value))
+            {
+                response.success = false;
+                response.error = new CommandError { message = $"No UIInput component on {GetHierarchyPath(target)}." };
+                return;
+            }
+
+            EditorUtility.SetDirty(target);
+            response.AddOutput("path", GetHierarchyPath(target));
+            response.AddOutput("value", GetNguiStringProperty(target, "UIInput", "value") ?? string.Empty);
+        }
+
+        private static string GetNguiStringProperty(GameObject go, string componentName, string propertyName)
+        {
+            foreach (var component in go.GetComponents<Component>())
+            {
+                if (component == null || component.GetType().Name != componentName)
+                {
+                    continue;
+                }
+
+                var property = component.GetType().GetProperty(propertyName);
+                if (property != null && property.PropertyType == typeof(string))
+                {
+                    return property.GetValue(component, null) as string ?? string.Empty;
+                }
+            }
+
+            return null;
+        }
+
+        private static bool SetNguiStringProperty(GameObject go, string componentName, string propertyName, string value)
+        {
+            foreach (var component in go.GetComponents<Component>())
+            {
+                if (component == null || component.GetType().Name != componentName)
+                {
+                    continue;
+                }
+
+                var property = component.GetType().GetProperty(propertyName);
+                if (property != null && property.CanWrite && property.PropertyType == typeof(string))
+                {
+                    property.SetValue(component, value, null);
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
         private static CommandRequest ToCommandRequest(BatchCommand command, int index)
         {
             if (command == null)
@@ -266,7 +751,11 @@ namespace ProjectMQaMcp.Editor
                     text = command.text,
                     labelText = command.labelText,
                     targetText = command.targetText,
-                    expectHitContains = command.expectHitContains
+                    expectHitContains = command.expectHitContains,
+                    logType = command.logType,
+                    maxCount = command.maxCount,
+                    value = command.value,
+                    nameQuery = command.nameQuery
                 }
             };
         }
@@ -1159,6 +1648,10 @@ namespace ProjectMQaMcp.Editor
         public string labelText;
         public string targetText;
         public string expectHitContains;
+        public string logType;
+        public int maxCount;
+        public string value;
+        public string nameQuery;
         public List<BatchCommand> commands;
     }
 
@@ -1188,6 +1681,16 @@ namespace ProjectMQaMcp.Editor
         public string labelText;
         public string targetText;
         public string expectHitContains;
+        public string logType;
+        public int maxCount;
+        public string value;
+        public string nameQuery;
+    }
+
+    [Serializable]
+    public sealed class CompileErrorLog
+    {
+        public List<string> errors = new List<string>();
     }
 
     [Serializable]

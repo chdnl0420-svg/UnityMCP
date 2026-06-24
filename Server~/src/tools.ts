@@ -13,6 +13,7 @@ import { normalizeOutputs, setPlayModeAndWait } from './playMode.js';
 import { clickUiTextAndWait, waitForUiText } from './uiText.js';
 import { runUiTextQaFlow } from './qaFlow.js';
 import { verifyScreenshotResponse } from './screenshot.js';
+import { recompileAndWait } from './recompile.js';
 
 const baseConfigShape = {
   unityPath: z.string().optional(),
@@ -129,6 +130,99 @@ export function registerTools(server: McpServer): void {
     kill: z.boolean().optional(),
     includeUnity: z.boolean().optional(),
   }, async (params) => toToolResult(await unityKillStale(params)));
+
+  server.tool('unity_recompile', 'Recompiles scripts (or refreshes assets), waits for the domain reload to settle, and reports compile errors. Use after editing C# code.', {
+    ...baseConfigShape,
+    refresh: z.boolean().optional(),
+    timeoutMs: timeoutSchema,
+    pollIntervalMs: z.number().int().positive().max(10000).optional(),
+  }, async (params) => toToolResult(await unityRecompile(params)));
+
+  server.tool('unity_compile_status', 'Reports whether Unity is compiling/updating and lists buffered compile errors from the last compilation.', {
+    ...baseConfigShape,
+    timeoutMs: timeoutSchema,
+  }, async (params) => toToolResult(await unitySimpleCommand(params, 'compile_status', {})));
+
+  server.tool('unity_get_console_logs', 'Reads the Unity Editor console (error/warning/log) for QA evidence and compile-error inspection.', {
+    ...baseConfigShape,
+    logType: z.enum(['all', 'error', 'warning', 'log']).optional(),
+    maxCount: z.number().int().positive().max(1000).optional(),
+    timeoutMs: timeoutSchema,
+  }, async (params) => toToolResult(await unitySimpleCommand(params, 'get_console_logs', {
+    logType: params.logType,
+    maxCount: params.maxCount,
+  })));
+
+  server.tool('unity_clear_console', 'Clears the Unity Editor console so the next QA step starts from a clean log.', {
+    ...baseConfigShape,
+    timeoutMs: timeoutSchema,
+  }, async (params) => toToolResult(await unitySimpleCommand(params, 'clear_console', {})));
+
+  server.tool('unity_inspect_object', 'Inspects a GameObject by hierarchy path or name: components, active state, transform, NGUI label/sprite/input, and collider bounds.', {
+    ...baseConfigShape,
+    targetPath: z.string().optional(),
+    targetName: z.string().optional(),
+    includeInactive: z.boolean().optional(),
+    timeoutMs: timeoutSchema,
+  }, async (params) => toToolResult(await unitySimpleCommand(params, 'inspect_object', {
+    targetPath: params.targetPath,
+    targetName: params.targetName,
+    includeInactive: params.includeInactive ?? false,
+  })));
+
+  server.tool('unity_find_objects', 'Finds active GameObjects whose name contains a query string, returning hierarchy paths, active state, and clickable/label hints.', {
+    ...baseConfigShape,
+    nameQuery: z.string().min(1),
+    includeInactive: z.boolean().optional(),
+    maxCount: z.number().int().positive().max(500).optional(),
+    timeoutMs: timeoutSchema,
+  }, async (params) => toToolResult(await unitySimpleCommand(params, 'find_objects', {
+    nameQuery: params.nameQuery,
+    includeInactive: params.includeInactive ?? false,
+    maxCount: params.maxCount,
+  })));
+
+  server.tool('unity_set_active', 'Activates or deactivates a GameObject found by hierarchy path or name.', {
+    ...baseConfigShape,
+    targetPath: z.string().optional(),
+    targetName: z.string().optional(),
+    active: z.boolean(),
+    includeInactive: z.boolean().optional(),
+    timeoutMs: timeoutSchema,
+  }, async (params) => toToolResult(await unitySimpleCommand(params, 'set_active', {
+    targetPath: params.targetPath,
+    targetName: params.targetName,
+    value: String(params.active),
+    includeInactive: params.includeInactive ?? true,
+  })));
+
+  server.tool('unity_set_label_text', 'Sets the text of an NGUI UILabel on a GameObject found by hierarchy path or name.', {
+    ...baseConfigShape,
+    targetPath: z.string().optional(),
+    targetName: z.string().optional(),
+    value: z.string(),
+    includeInactive: z.boolean().optional(),
+    timeoutMs: timeoutSchema,
+  }, async (params) => toToolResult(await unitySimpleCommand(params, 'set_label_text', {
+    targetPath: params.targetPath,
+    targetName: params.targetName,
+    value: params.value,
+    includeInactive: params.includeInactive ?? false,
+  })));
+
+  server.tool('unity_set_input_text', 'Sets the value of an NGUI UIInput on a GameObject found by hierarchy path or name.', {
+    ...baseConfigShape,
+    targetPath: z.string().optional(),
+    targetName: z.string().optional(),
+    value: z.string(),
+    includeInactive: z.boolean().optional(),
+    timeoutMs: timeoutSchema,
+  }, async (params) => toToolResult(await unitySimpleCommand(params, 'set_input_text', {
+    targetPath: params.targetPath,
+    targetName: params.targetName,
+    value: params.value,
+    includeInactive: params.includeInactive ?? false,
+  })));
 }
 
 async function unityStatus(params: any): Promise<unknown> {
@@ -384,6 +478,40 @@ async function unityKillStale(params: any): Promise<unknown> {
     killed,
     candidates,
   };
+}
+
+async function unityRecompile(params: any): Promise<unknown> {
+  const config = resolveProjectConfig(params);
+  return recompileAndWait({
+    refresh: params.refresh ?? false,
+    timeoutMs: params.timeoutMs ?? 180000,
+    pollIntervalMs: params.pollIntervalMs ?? 750,
+    commandTimeoutMs: 15000,
+    execute: (command, parameters, timeoutMs) => executeEditorCommand({
+      unityPath: config.unityPath,
+      projectPath: config.projectPath,
+      commandRoot: config.commandRoot,
+      command,
+      parameters,
+      timeoutMs,
+      runOnce: false,
+    }),
+  });
+}
+
+async function unitySimpleCommand(params: any, command: string, parameters: Record<string, unknown>): Promise<unknown> {
+  const config = resolveProjectConfig(params);
+  // Drop undefined values so JsonUtility on the C# side keeps its defaults.
+  const cleaned = Object.fromEntries(Object.entries(parameters).filter(([, value]) => value !== undefined));
+  return executeEditorCommand({
+    unityPath: config.unityPath,
+    projectPath: config.projectPath,
+    commandRoot: config.commandRoot,
+    command,
+    parameters: cleaned,
+    timeoutMs: params.timeoutMs ?? 15000,
+    runOnce: false,
+  });
 }
 
 function toToolResult(value: unknown): any {
