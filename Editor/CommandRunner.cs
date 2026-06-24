@@ -477,8 +477,25 @@ namespace ProjectMQaMcp.Editor
                 }
                 entries.Reverse();
 
+                // LogEntries is cleared by Unity's "Clear on Play" setting, so it may return
+                // 0 entries during PlayMode even when the game is actively logging. Fall back to
+                // scanning the Editor.log file for exception/error lines so PlayMode errors are
+                // not silently lost.
+                var usedFallback = false;
+                if (total == 0 && (typeFilter == "all" || typeFilter == "error"))
+                {
+                    var fallbackErrors = ScanEditorLogForErrors(maxCount);
+                    if (fallbackErrors.Count > 0)
+                    {
+                        entries.AddRange(fallbackErrors);
+                        counts["error"] += fallbackErrors.Count;
+                        usedFallback = true;
+                    }
+                }
+
                 response.AddOutput("reflectionAvailable", "true");
                 response.AddOutput("totalEntries", total.ToString());
+                if (usedFallback) response.AddOutput("fallbackSource", "editor.log");
                 response.AddOutput("errorCount", counts["error"].ToString());
                 response.AddOutput("warningCount", counts["warning"].ToString());
                 response.AddOutput("logCount", counts["log"].ToString());
@@ -492,6 +509,52 @@ namespace ProjectMQaMcp.Editor
                 response.AddOutput("count", entries.Count.ToString());
                 response.AddOutput("logs", string.Join("\n", entries));
             }
+        }
+
+        private static List<string> ScanEditorLogForErrors(int maxCount)
+        {
+            var results = new List<string>();
+            try
+            {
+                var logPath = Application.consoleLogPath;
+                if (string.IsNullOrEmpty(logPath) || !File.Exists(logPath)) return results;
+
+                // Read the last 80 KB — enough to capture recent PlayMode errors without
+                // loading the entire (potentially very large) log file.
+                const int tailBytes = 81920;
+                using (var fs = new FileStream(logPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
+                {
+                    var offset = Math.Max(0, fs.Length - tailBytes);
+                    fs.Seek(offset, SeekOrigin.Begin);
+                    using var reader = new System.IO.StreamReader(fs);
+                    var content = reader.ReadToEnd();
+                    foreach (var raw in content.Split('\n'))
+                    {
+                        var line = raw.TrimEnd();
+                        if (IsEditorLogErrorHeader(line))
+                        {
+                            results.Add("[error] " + line.TrimStart());
+                            if (results.Count >= maxCount) break;
+                        }
+                    }
+                }
+            }
+            catch { }
+            return results;
+        }
+
+        private static bool IsEditorLogErrorHeader(string line)
+        {
+            if (line.Length == 0) return false;
+            // Stack trace lines start with whitespace — skip them.
+            if (char.IsWhiteSpace(line[0])) return false;
+            // Skip MCP bridge diagnostics.
+            if (line.StartsWith("[ProjectMQaMcp]")) return false;
+            // Match common Unity exception/error header patterns.
+            return line.Contains("Exception:") ||
+                   line.StartsWith("Error ") ||
+                   line.StartsWith("Error:") ||
+                   line.StartsWith("FATAL ");
         }
 
         private static string ClassifyLogMode(int mode)
