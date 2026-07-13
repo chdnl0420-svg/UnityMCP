@@ -69,6 +69,21 @@ Editor commands must write response JSON with `success`, `command`,
 Test tools parse Unity Test Framework XML and expose failure counts.
 Screenshot tools verify that a PNG exists and has non-zero size.
 
+## Frame-sequence recording (fast motion)
+
+For fast motion that a single `unity_capture_screenshot` round-trip misses,
+record the game view as a PNG frame sequence:
+
+- `unity_start_frame_capture` — starts capturing the game view camera on every
+  editor update into a frames folder and returns immediately. Run the fast
+  action next. Bounded by `maxFrames` and `maxDurationSeconds` (auto-stops).
+- `unity_stop_frame_capture` — stops recording and returns `framesDir`,
+  `frameCount`, and `fps`. Read the `frame_NNNNN.png` files in order to inspect
+  the motion.
+
+Use recording only when a single screenshot cannot catch the change; a normal
+screenshot is cheaper for static checks.
+
 ## Recovery Notes
 
 If Unity does not answer a command, inspect:
