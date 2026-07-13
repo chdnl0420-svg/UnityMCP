@@ -21498,6 +21498,24 @@ function registerTools(server2) {
     timeoutMs: timeoutSchema,
     runOnce: external_exports.boolean().optional()
   }, async (params) => toToolResult(await unityCaptureScreenshot(params)));
+  server2.tool("unity_start_frame_capture", "Starts recording the Unity game view as a PNG frame sequence on every editor update, for fast motion a single screenshot round-trip misses. Returns immediately with the frames folder; run the fast action, then call unity_stop_frame_capture. Auto-stops at maxFrames/maxDurationSeconds. Use only when a single screenshot cannot catch the change.", {
+    ...baseConfigShape,
+    framesDir: external_exports.string().optional(),
+    cameraName: external_exports.string().optional(),
+    width: external_exports.number().int().positive().max(8192).optional(),
+    height: external_exports.number().int().positive().max(8192).optional(),
+    captureEveryNthUpdate: external_exports.number().int().positive().max(60).optional(),
+    maxFrames: external_exports.number().int().positive().max(3600).optional(),
+    maxDurationSeconds: external_exports.number().positive().max(120).optional(),
+    timeoutMs: timeoutSchema,
+    runOnce: external_exports.boolean().optional()
+  }, async (params) => toToolResult(await unityStartFrameCapture(params)));
+  server2.tool("unity_stop_frame_capture", "Stops the running game view frame-sequence recording and returns the frames folder, frame count, and fps. Read the PNG frame sequence in order to inspect the fast motion.", {
+    ...baseConfigShape,
+    framesDir: external_exports.string().optional(),
+    timeoutMs: timeoutSchema,
+    runOnce: external_exports.boolean().optional()
+  }, async (params) => toToolResult(await unityStopFrameCapture(params)));
   server2.tool("unity_kill_stale", "Reports stale Unity/node/MCP processes and optionally kills only explicit stale candidates.", {
     ...baseConfigShape,
     kill: external_exports.boolean().optional(),
@@ -21611,6 +21629,60 @@ async function unityCaptureScreenshot(params) {
       outputPath,
       pngExists: await pathExists(outputPath),
       pngBytes: bytes
+    }
+  };
+}
+async function unityStartFrameCapture(params) {
+  const config2 = resolveProjectConfig(params);
+  const framesDir = params.framesDir || join4(config2.commandRoot, "recordings", `rec-${Date.now()}`);
+  const response = await executeEditorCommand({
+    unityPath: config2.unityPath,
+    projectPath: config2.projectPath,
+    commandRoot: config2.commandRoot,
+    command: "start_frame_capture",
+    parameters: {
+      framesDir,
+      cameraName: params.cameraName,
+      width: params.width ?? 1280,
+      height: params.height ?? 720,
+      captureEveryNthUpdate: params.captureEveryNthUpdate ?? 1,
+      maxFrames: params.maxFrames ?? 600,
+      maxDurationSeconds: params.maxDurationSeconds ?? 30
+    },
+    timeoutMs: params.timeoutMs ?? 15e3,
+    runOnce: params.runOnce ?? false
+  });
+  return {
+    ...response,
+    outputs: {
+      ...normalizeOutputs(response.outputs),
+      framesDir
+    }
+  };
+}
+async function unityStopFrameCapture(params) {
+  const config2 = resolveProjectConfig(params);
+  const response = await executeEditorCommand({
+    unityPath: config2.unityPath,
+    projectPath: config2.projectPath,
+    commandRoot: config2.commandRoot,
+    command: "stop_frame_capture",
+    parameters: {
+      framesDir: params.framesDir
+    },
+    timeoutMs: params.timeoutMs ?? 15e3,
+    runOnce: params.runOnce ?? false
+  });
+  const outputs = normalizeOutputs(response.outputs);
+  const framesDir = outputs.framesDir || params.framesDir;
+  const frameCount = Number(outputs.frameCount ?? 0);
+  return {
+    ...response,
+    success: response.success && frameCount > 0,
+    outputs: {
+      ...outputs,
+      framesDir,
+      framesDirExists: framesDir ? await pathExists(framesDir) : false
     }
   };
 }
