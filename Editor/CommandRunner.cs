@@ -27,6 +27,21 @@ namespace ProjectMQaMcp.Editor
         private static double nextPollTime;
         private static bool isProcessing;
 
+        // --- Frame-sequence recording state (for capturing fast motion a single screenshot misses) ---
+        private static bool isRecording;
+        private static string recordFramesDir;
+        private static int recordFrameIndex;
+        private static int recordStride;
+        private static int recordStrideCounter;
+        private static int recordMaxFrames;
+        private static double recordMaxDurationSeconds;
+        private static double recordStartTime;
+        private static string recordCameraName;
+        private static int recordWidth;
+        private static int recordHeight;
+        private static RenderTexture recordRenderTexture;
+        private static Texture2D recordTexture;
+
         static CommandRunner()
         {
             EditorApplication.update += Poll;
@@ -129,6 +144,12 @@ namespace ProjectMQaMcp.Editor
                 case "capture_screenshot":
                 case "capture_game_view":
                     CaptureScreenshot(parameters, response);
+                    break;
+                case "start_frame_capture":
+                    StartFrameCapture(parameters, response);
+                    break;
+                case "stop_frame_capture":
+                    StopFrameCapture(parameters, response);
                     break;
                 case "open_scene":
                     OpenScene(parameters, response);
@@ -1539,6 +1560,143 @@ namespace ProjectMQaMcp.Editor
                 normalizedY <= 1f + VisibleBoundsPadding;
         }
 
+        // Starts capturing the game view camera into a PNG frame sequence on every editor update,
+        // so fast motion that a single screenshot round-trip misses is recorded at editor frame rate.
+        // Returns immediately; the caller runs the fast action, then calls stop_frame_capture.
+        private static void StartFrameCapture(CommandParameters parameters, CommandResponse response)
+        {
+            // Restart cleanly if a previous recording is still running.
+            if (isRecording)
+            {
+                StopRecordingInternal();
+            }
+
+            var framesDir = Require(parameters.framesDir, "framesDir");
+            Directory.CreateDirectory(framesDir);
+
+            recordFramesDir = framesDir;
+            recordFrameIndex = 0;
+            recordStride = parameters.captureEveryNthUpdate > 0 ? parameters.captureEveryNthUpdate : 1;
+            recordStrideCounter = 0;
+            recordMaxFrames = parameters.maxFrames > 0 ? parameters.maxFrames : 600;
+            recordMaxDurationSeconds = parameters.maxDurationSeconds > 0 ? parameters.maxDurationSeconds : 30.0;
+            recordStartTime = EditorApplication.timeSinceStartup;
+            recordCameraName = parameters.cameraName;
+            recordWidth = parameters.width > 0 ? parameters.width : 1280;
+            recordHeight = parameters.height > 0 ? parameters.height : 720;
+
+            // Reuse one RenderTexture + Texture2D across all frames to avoid per-frame allocation.
+            recordRenderTexture = new RenderTexture(recordWidth, recordHeight, 24);
+            recordTexture = new Texture2D(recordWidth, recordHeight, TextureFormat.RGB24, false);
+
+            isRecording = true;
+            EditorApplication.update += CaptureRecordingFrame;
+
+            response.AddOutput("recording", "true");
+            response.AddOutput("framesDir", framesDir);
+            response.AddOutput("captureEveryNthUpdate", recordStride.ToString());
+            response.AddOutput("maxFrames", recordMaxFrames.ToString());
+            response.AddOutput("maxDurationSeconds", recordMaxDurationSeconds.ToString("F1"));
+        }
+
+        // Update-driven capture. Auto-stops on max frames / max duration / errors so a forgotten
+        // stop never fills the disk or leaks the update subscription.
+        private static void CaptureRecordingFrame()
+        {
+            if (!isRecording)
+            {
+                return;
+            }
+
+            try
+            {
+                if (recordFrameIndex >= recordMaxFrames ||
+                    (EditorApplication.timeSinceStartup - recordStartTime) >= recordMaxDurationSeconds)
+                {
+                    StopRecordingInternal();
+                    return;
+                }
+
+                recordStrideCounter++;
+                if (recordStrideCounter < recordStride)
+                {
+                    return;
+                }
+                recordStrideCounter = 0;
+
+                var camera = FindCamera(recordCameraName);
+                if (camera == null || recordRenderTexture == null || recordTexture == null)
+                {
+                    return;
+                }
+
+                var previousTarget = camera.targetTexture;
+                var previousActive = RenderTexture.active;
+                try
+                {
+                    camera.targetTexture = recordRenderTexture;
+                    RenderTexture.active = recordRenderTexture;
+                    camera.Render();
+                    recordTexture.ReadPixels(new Rect(0, 0, recordWidth, recordHeight), 0, 0);
+                    recordTexture.Apply();
+                    var framePath = Path.Combine(recordFramesDir, $"frame_{recordFrameIndex:D5}.png");
+                    File.WriteAllBytes(framePath, recordTexture.EncodeToPNG());
+                    recordFrameIndex++;
+                }
+                finally
+                {
+                    camera.targetTexture = previousTarget;
+                    RenderTexture.active = previousActive;
+                }
+            }
+            catch (Exception e)
+            {
+                UnityEngine.Debug.LogWarning($"{LogPrefix} frame capture error, stopping recording: {e.Message}");
+                StopRecordingInternal();
+            }
+        }
+
+        private static void StopFrameCapture(CommandParameters parameters, CommandResponse response)
+        {
+            var framesDir = !string.IsNullOrEmpty(recordFramesDir) ? recordFramesDir : parameters.framesDir;
+            var frameCount = recordFrameIndex;
+            var elapsedSeconds = isRecording ? (EditorApplication.timeSinceStartup - recordStartTime) : 0.0;
+
+            StopRecordingInternal();
+
+            // Prefer the on-disk count as the source of truth.
+            if (!string.IsNullOrEmpty(framesDir) && Directory.Exists(framesDir))
+            {
+                frameCount = Directory.GetFiles(framesDir, "frame_*.png").Length;
+            }
+
+            response.AddOutput("recording", "false");
+            response.AddOutput("framesDir", framesDir ?? string.Empty);
+            response.AddOutput("frameCount", frameCount.ToString());
+            response.AddOutput("elapsedSeconds", elapsedSeconds.ToString("F2"));
+            response.AddOutput("fps", elapsedSeconds > 0 ? (frameCount / elapsedSeconds).ToString("F1") : "0");
+        }
+
+        private static void StopRecordingInternal()
+        {
+            if (isRecording)
+            {
+                EditorApplication.update -= CaptureRecordingFrame;
+            }
+            isRecording = false;
+
+            if (recordRenderTexture != null)
+            {
+                Object.DestroyImmediate(recordRenderTexture);
+                recordRenderTexture = null;
+            }
+            if (recordTexture != null)
+            {
+                Object.DestroyImmediate(recordTexture);
+                recordTexture = null;
+            }
+        }
+
         private static GameObject FindClickableTarget(GameObject go, Vector3 screenPos)
         {
             var collider = go.GetComponent<Collider>();
@@ -1972,6 +2130,10 @@ namespace ProjectMQaMcp.Editor
         public string targetName;
         public string targetPath;
         public bool includeInactive;
+        public string framesDir;
+        public int captureEveryNthUpdate;
+        public int maxFrames;
+        public double maxDurationSeconds;
         public bool includeOffscreen;
         public bool actionableOnly;
         public float pointX;
