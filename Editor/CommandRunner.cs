@@ -145,6 +145,10 @@ namespace ProjectMQaMcp.Editor
                 case "capture_game_view":
                     CaptureScreenshot(parameters, response);
                     break;
+                case "maximize_game_view":
+                case "set_game_view_maximized":
+                    MaximizeGameView(parameters, response);
+                    break;
                 case "start_frame_capture":
                     StartFrameCapture(parameters, response);
                     break;
@@ -1172,6 +1176,35 @@ namespace ProjectMQaMcp.Editor
             response.AddOutput("pngBytes", info.Exists ? info.Length.ToString() : "0");
         }
 
+        // Maximizes (or restores) the Editor Game view so the running game renders at a larger
+        // resolution. This lets screenCapture grab the full UI (detail panels no longer clipped by
+        // the small default game view). Screen.width/height update on the next frame, so callers
+        // should maximize first and capture_screenshot on a following call.
+        private static void MaximizeGameView(CommandParameters parameters, CommandResponse response)
+        {
+            var gameViewType = System.Type.GetType("UnityEditor.GameView,UnityEditor");
+            if (gameViewType == null)
+            {
+                throw new InvalidOperationException("UnityEditor.GameView type not found.");
+            }
+
+            var window = EditorWindow.GetWindow(gameViewType, false, "Game", true);
+            if (window == null)
+            {
+                throw new InvalidOperationException("Game view window not found.");
+            }
+
+            var maximize = !parameters.restore;
+            window.maximized = maximize;
+            window.Focus();
+            window.Repaint();
+
+            response.AddOutput("requestedMaximized", maximize.ToString());
+            response.AddOutput("windowMaximized", window.maximized.ToString());
+            response.AddOutput("screenSize", Screen.width + "x" + Screen.height);
+            response.AddOutput("note", "screenSize updates next frame; call capture_screenshot on a following request.");
+        }
+
         private static void OpenScene(CommandParameters parameters, CommandResponse response)
         {
             var scenePath = Require(parameters.scenePath, "scenePath");
@@ -2134,6 +2167,7 @@ namespace ProjectMQaMcp.Editor
         public int captureEveryNthUpdate;
         public int maxFrames;
         public double maxDurationSeconds;
+        public bool restore;
         public bool includeOffscreen;
         public bool actionableOnly;
         public float pointX;
