@@ -149,6 +149,9 @@ namespace ProjectMQaMcp.Editor
                 case "set_game_view_maximized":
                     MaximizeGameView(parameters, response);
                     break;
+                case "set_game_view_resolution":
+                    SetGameViewResolution(parameters, response);
+                    break;
                 case "start_frame_capture":
                     StartFrameCapture(parameters, response);
                     break;
@@ -1203,6 +1206,64 @@ namespace ProjectMQaMcp.Editor
             response.AddOutput("windowMaximized", window.maximized.ToString());
             response.AddOutput("screenSize", Screen.width + "x" + Screen.height);
             response.AddOutput("note", "screenSize updates next frame; call capture_screenshot on a following request.");
+        }
+
+        // Sets the Editor Game view to a fixed pixel resolution so the running game renders at that
+        // size (Screen.width/height). Unlike maximize (which uses the editor window aspect and can
+        // clip tall panels), a fixed square-ish resolution lets screenCapture grab the full UI —
+        // tall detail panels and wide trees alike. Adds a reusable custom size and selects it.
+        // width/height default to 1440x1440. Screen updates next frame, so capture on a later call.
+        private static void SetGameViewResolution(CommandParameters parameters, CommandResponse response)
+        {
+            int w = parameters.width > 0 ? parameters.width : 1440;
+            int h = parameters.height > 0 ? parameters.height : 1440;
+
+            var asm = typeof(EditorWindow).Assembly;
+            var sizesType = asm.GetType("UnityEditor.GameViewSizes");
+            var singleton = typeof(ScriptableSingleton<>).MakeGenericType(sizesType);
+            var instance = singleton.GetProperty("instance").GetValue(null, null);
+            var currentGroup = sizesType.GetProperty("currentGroup").GetValue(instance, null);
+            var groupType = currentGroup.GetType();
+
+            var gvSizeType = asm.GetType("UnityEditor.GameViewSize");
+            var gvSizeTypeEnum = asm.GetType("UnityEditor.GameViewSizeType");
+            var fixedRes = System.Enum.Parse(gvSizeTypeEnum, "FixedResolution");
+            string label = "QA_" + w + "x" + h;
+
+            var getTotalCount = groupType.GetMethod("GetTotalCount");
+            var getGameViewSize = groupType.GetMethod("GetGameViewSize");
+            var baseTextProp = gvSizeType.GetProperty("baseText");
+
+            int total = (int)getTotalCount.Invoke(currentGroup, null);
+            int idx = -1;
+            for (int i = 0; i < total; i++)
+            {
+                var s = getGameViewSize.Invoke(currentGroup, new object[] { i });
+                if ((string)baseTextProp.GetValue(s, null) == label) { idx = i; break; }
+            }
+            if (idx < 0)
+            {
+                var ctor = gvSizeType.GetConstructor(new[] { gvSizeTypeEnum, typeof(int), typeof(int), typeof(string) });
+                var newSize = ctor.Invoke(new object[] { fixedRes, w, h, label });
+                groupType.GetMethod("AddCustomSize").Invoke(currentGroup, new[] { newSize });
+                idx = (int)getTotalCount.Invoke(currentGroup, null) - 1;
+            }
+
+            var gvWndType = asm.GetType("UnityEditor.GameView");
+            var window = EditorWindow.GetWindow(gvWndType, false, "Game", true);
+            var sizeCb = gvWndType.GetMethod("SizeSelectionCallback",
+                System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic);
+            if (sizeCb == null)
+            {
+                throw new InvalidOperationException("GameView.SizeSelectionCallback not found (Unity version mismatch).");
+            }
+            sizeCb.Invoke(window, new object[] { idx, null });
+            window.Repaint();
+
+            response.AddOutput("requestedResolution", w + "x" + h);
+            response.AddOutput("sizeIndex", idx.ToString());
+            response.AddOutput("screenSize", Screen.width + "x" + Screen.height);
+            response.AddOutput("note", "screenSize updates next frame; capture on a following request.");
         }
 
         private static void OpenScene(CommandParameters parameters, CommandResponse response)
