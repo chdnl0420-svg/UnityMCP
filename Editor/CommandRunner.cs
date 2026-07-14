@@ -18,7 +18,7 @@ namespace ProjectMQaMcp.Editor
         private const string LogPrefix = "[ProjectMQaMcp]";
         // Monotonic sentinel: bump on every deploy so callers can verify a re-resolved
         // package actually loaded the new bridge code (absence->presence is unambiguous).
-        private const int BridgeProtocolVersion = 6;
+        private const int BridgeProtocolVersion = 7;
         private const double PollIntervalSeconds = 1.0;
         private const float FallbackClickMaxNormalizedDistanceSqr = 0.18f;
         private const int FallbackClickMinSharedHierarchy = 3;
@@ -1118,62 +1118,101 @@ namespace ProjectMQaMcp.Editor
             };
         }
 
-        private static void CaptureScreenshot(CommandParameters parameters, CommandResponse response)
+        // Renders the live view into a caller-owned RenderTexture by drawing every active camera in
+        // depth order (world cameras first, NGUI/UI overlay cameras last), so the result is the full
+        // composited frame including UI.
+        //
+        // Why not ScreenCapture.CaptureScreenshotAsTexture: in the Editor it reads back the editor
+        // window framebuffer, not the Game view's own rect. The Game view render sits at an offset
+        // inside the docked window, so the readback lands off-target - editor gray on one side, the
+        // game clipped off on the other - and that offset shifts with window layout, docking, game
+        // view scale and DPI. Rendering cameras into our own RenderTexture is exact, matches
+        // Screen.width/height (so normalized click_at coords map 1:1 onto the image), and does not
+        // depend on window layout or focus at all.
+        private static void RenderCamerasToTexture(RenderTexture target, string cameraName)
         {
-            var outputPath = Require(parameters.outputPath, "outputPath");
-            var width = parameters.width > 0 ? parameters.width : 1280;
-            var height = parameters.height > 0 ? parameters.height : 720;
-            Directory.CreateDirectory(Path.GetDirectoryName(outputPath) ?? ".");
+            var cameras = string.IsNullOrEmpty(cameraName)
+                ? Camera.allCameras.Where(x => x.targetTexture == null).OrderBy(x => x.depth).ToArray()
+                : Camera.allCameras.Where(x => x.name == cameraName).ToArray();
 
-            if (Application.isPlaying)
+            if (cameras.Length == 0)
             {
-                var screenTexture = ScreenCapture.CaptureScreenshotAsTexture();
-                try
-                {
-                    File.WriteAllBytes(outputPath, screenTexture.EncodeToPNG());
-                    response.AddOutput("mode", "screenCapture");
-                    response.AddOutput("width", screenTexture.width.ToString());
-                    response.AddOutput("height", screenTexture.height.ToString());
-                }
-                finally
-                {
-                    Object.DestroyImmediate(screenTexture);
-                }
-
-                var playInfo = new FileInfo(outputPath);
-                response.AddOutput("outputPath", outputPath);
-                response.AddOutput("pngBytes", playInfo.Exists ? playInfo.Length.ToString() : "0");
-                return;
+                throw new InvalidOperationException(string.IsNullOrEmpty(cameraName)
+                    ? "No active camera found for capture."
+                    : $"No active camera named '{cameraName}' found for capture.");
             }
 
-            var camera = FindCamera(parameters.cameraName);
-            if (camera == null)
-            {
-                throw new InvalidOperationException("No camera found for screenshot capture.");
-            }
-
-            var renderTexture = new RenderTexture(width, height, 24);
-            var previousTarget = camera.targetTexture;
             var previousActive = RenderTexture.active;
             try
             {
-                camera.targetTexture = renderTexture;
-                RenderTexture.active = renderTexture;
-                camera.Render();
+                // Clear once up front: the lowest-depth camera may use ClearFlags.Depth and would
+                // otherwise composite onto whatever the texture held before.
+                RenderTexture.active = target;
+                GL.Clear(true, true, Color.black);
 
-                var texture = new Texture2D(width, height, TextureFormat.RGB24, false);
-                texture.ReadPixels(new Rect(0, 0, width, height), 0, 0);
-                texture.Apply();
-                File.WriteAllBytes(outputPath, texture.EncodeToPNG());
-                Object.DestroyImmediate(texture);
+                foreach (var camera in cameras)
+                {
+                    var previousTarget = camera.targetTexture;
+                    try
+                    {
+                        camera.targetTexture = target;
+                        camera.Render();
+                    }
+                    finally
+                    {
+                        camera.targetTexture = previousTarget;
+                    }
+                }
             }
             finally
             {
-                camera.targetTexture = previousTarget;
                 RenderTexture.active = previousActive;
+            }
+        }
+
+        private static void WriteTextureToPng(RenderTexture source, Texture2D scratch, string outputPath)
+        {
+            var previousActive = RenderTexture.active;
+            try
+            {
+                RenderTexture.active = source;
+                scratch.ReadPixels(new Rect(0, 0, scratch.width, scratch.height), 0, 0);
+                scratch.Apply();
+                File.WriteAllBytes(outputPath, scratch.EncodeToPNG());
+            }
+            finally
+            {
+                RenderTexture.active = previousActive;
+            }
+        }
+
+        private static void CaptureScreenshot(CommandParameters parameters, CommandResponse response)
+        {
+            var outputPath = Require(parameters.outputPath, "outputPath");
+            // Default to the live Screen size so the capture matches the resolution the game laid its
+            // UI out for, which keeps normalized click_at coordinates consistent with the image.
+            var width = parameters.width > 0 ? parameters.width
+                : (Application.isPlaying && Screen.width > 0 ? Screen.width : 1280);
+            var height = parameters.height > 0 ? parameters.height
+                : (Application.isPlaying && Screen.height > 0 ? Screen.height : 720);
+            Directory.CreateDirectory(Path.GetDirectoryName(outputPath) ?? ".");
+
+            var renderTexture = new RenderTexture(width, height, 24);
+            var texture = new Texture2D(width, height, TextureFormat.RGB24, false);
+            try
+            {
+                RenderCamerasToTexture(renderTexture, parameters.cameraName);
+                WriteTextureToPng(renderTexture, texture, outputPath);
+            }
+            finally
+            {
+                Object.DestroyImmediate(texture);
                 Object.DestroyImmediate(renderTexture);
             }
 
+            response.AddOutput("mode", "cameraComposite");
+            response.AddOutput("width", width.ToString());
+            response.AddOutput("height", height.ToString());
             var info = new FileInfo(outputPath);
             response.AddOutput("outputPath", outputPath);
             response.AddOutput("pngBytes", info.Exists ? info.Length.ToString() : "0");
@@ -1676,8 +1715,11 @@ namespace ProjectMQaMcp.Editor
             recordMaxDurationSeconds = parameters.maxDurationSeconds > 0 ? parameters.maxDurationSeconds : 30.0;
             recordStartTime = EditorApplication.timeSinceStartup;
             recordCameraName = parameters.cameraName;
-            recordWidth = parameters.width > 0 ? parameters.width : 1280;
-            recordHeight = parameters.height > 0 ? parameters.height : 720;
+            // Match the live Screen size by default so frames line up with normalized click coords.
+            recordWidth = parameters.width > 0 ? parameters.width
+                : (Application.isPlaying && Screen.width > 0 ? Screen.width : 1280);
+            recordHeight = parameters.height > 0 ? parameters.height
+                : (Application.isPlaying && Screen.height > 0 ? Screen.height : 720);
 
             // Reuse one RenderTexture + Texture2D across all frames to avoid per-frame allocation.
             recordRenderTexture = new RenderTexture(recordWidth, recordHeight, 24);
@@ -1718,30 +1760,18 @@ namespace ProjectMQaMcp.Editor
                 }
                 recordStrideCounter = 0;
 
-                var camera = FindCamera(recordCameraName);
-                if (camera == null || recordRenderTexture == null || recordTexture == null)
+                if (recordRenderTexture == null || recordTexture == null)
                 {
                     return;
                 }
 
-                var previousTarget = camera.targetTexture;
-                var previousActive = RenderTexture.active;
-                try
-                {
-                    camera.targetTexture = recordRenderTexture;
-                    RenderTexture.active = recordRenderTexture;
-                    camera.Render();
-                    recordTexture.ReadPixels(new Rect(0, 0, recordWidth, recordHeight), 0, 0);
-                    recordTexture.Apply();
-                    var framePath = Path.Combine(recordFramesDir, $"frame_{recordFrameIndex:D5}.png");
-                    File.WriteAllBytes(framePath, recordTexture.EncodeToPNG());
-                    recordFrameIndex++;
-                }
-                finally
-                {
-                    camera.targetTexture = previousTarget;
-                    RenderTexture.active = previousActive;
-                }
+                // Composite every camera, not just Camera.main: the world camera alone renders no
+                // NGUI UI, so buff/debuff icons, damage numbers and HUD state would be missing from
+                // the frames that are supposed to prove an effect fired.
+                RenderCamerasToTexture(recordRenderTexture, recordCameraName);
+                var framePath = Path.Combine(recordFramesDir, $"frame_{recordFrameIndex:D5}.png");
+                WriteTextureToPng(recordRenderTexture, recordTexture, framePath);
+                recordFrameIndex++;
             }
             catch (Exception e)
             {
