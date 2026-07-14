@@ -1444,10 +1444,12 @@ namespace ProjectMQaMcp.Editor
         }
 
         // Mouse-wheel scroll over a normalized screen point.
-        // NGUI routes wheel input to the hovered widget, but a QA driver has no real hover
-        // state, so we raycast the point ourselves and walk up to the owning UIScrollView.
-        // UIScrollView.Scroll(delta) is the same entry point UICamera uses for the wheel,
-        // so this reproduces a real wheel scroll rather than teleporting the panel.
+        // Same path as ClickAt: raycast the point, then hand the event to UICamera.Notify.
+        // NGUI widgets subscribe via UIEventListener (onScroll/onDrag/onPress), so notifying
+        // the hit object is all a real wheel does. Do NOT look up a scroll component by type
+        // name and call its methods directly - custom lists (e.g. UITableView, which derives
+        // from MonoBehaviour rather than UIScrollView) do not match, and the driver silently
+        // fails on exactly the screens that need scrolling.
         private static void ScrollAt(CommandParameters parameters, CommandResponse response)
         {
             var pointX = ResolvePointX(parameters);
@@ -1457,7 +1459,7 @@ namespace ProjectMQaMcp.Editor
 
             var amount = Mathf.Approximately(parameters.amount, 0f) ? 1f : parameters.amount;
             var dir = (parameters.direction ?? "down").ToLowerInvariant();
-            // NGUI wheel convention: positive delta scrolls the content up (view moves toward top).
+            // NGUI wheel convention: positive delta scrolls the content toward the top.
             var delta = dir == "up" ? amount : -amount;
 
             var target = NguiRaycast(screenPos);
@@ -1471,45 +1473,28 @@ namespace ProjectMQaMcp.Editor
                 return;
             }
 
-            var scrollView = FindComponentUpwards(target, "UIScrollView");
-            if (scrollView == null)
-            {
-                response.success = false;
-                response.error = new CommandError
-                {
-                    message = $"Hit '{GetHierarchyPath(target)}' has no UIScrollView in its parents - this area does not scroll."
-                };
-                return;
-            }
-
-            var scrollMethod = scrollView.GetType().GetMethod("Scroll",
-                BindingFlags.Public | BindingFlags.Instance, null, new[] { typeof(float) }, null);
-            if (scrollMethod == null)
-            {
-                response.success = false;
-                response.error = new CommandError { message = "UIScrollView.Scroll(float) not found." };
-                return;
-            }
-
             var steps = parameters.steps > 0 ? parameters.steps : 1;
             for (var i = 0; i < steps; i++)
             {
-                scrollMethod.Invoke(scrollView, new object[] { delta });
+                if (!NotifyNgui(target, "OnScroll", delta))
+                {
+                    target.SendMessage("OnScroll", delta, SendMessageOptions.DontRequireReceiver);
+                    response.logs.Add($"{LogPrefix} UICamera.Notify not found; used SendMessage fallback.");
+                }
             }
 
-            response.AddOutput("scrollViewPath", GetHierarchyPath(((Component)scrollView).gameObject));
             response.AddOutput("hitPath", GetHierarchyPath(target));
+            response.AddOutput("hitName", target.name);
             response.AddOutput("direction", dir);
             response.AddOutput("delta", delta.ToString("F3"));
             response.AddOutput("steps", steps.ToString());
             response.AddOutput("scrolled", "true");
         }
 
-        // Press-move-release drag from one normalized point to another.
-        // NGUI delivers drags as OnPress(true) -> repeated OnDrag(delta) -> OnPress(false),
-        // so we replay that sequence. steps splits the travel into increments because
-        // UIScrollView applies momentum per OnDrag; a single huge delta scrolls differently
-        // than a real swipe of the same distance.
+        // Press-move-release drag between two normalized points, via UICamera.Notify.
+        // NGUI delivers a drag as OnPress(true) -> repeated OnDrag(delta) -> OnPress(false).
+        // The travel is split into steps because listeners apply momentum per OnDrag; one huge
+        // delta scrolls differently than a real swipe of the same distance.
         private static void DragBetween(CommandParameters parameters, CommandResponse response)
         {
             var fromX = ResolvePointX(parameters);
@@ -1549,25 +1534,6 @@ namespace ProjectMQaMcp.Editor
             response.AddOutput("totalDelta", $"{total.x:F1},{total.y:F1}");
             response.AddOutput("steps", steps.ToString());
             response.AddOutput("dragged", "true");
-        }
-
-        // Walk the parent chain looking for a component by type name (NGUI types live in
-        // the game assembly, so we cannot reference them directly from an editor script).
-        private static object FindComponentUpwards(GameObject go, string typeName)
-        {
-            var t = go.transform;
-            while (t != null)
-            {
-                foreach (var c in t.GetComponents<Component>())
-                {
-                    if (c != null && c.GetType().Name == typeName)
-                    {
-                        return c;
-                    }
-                }
-                t = t.parent;
-            }
-            return null;
         }
 
         private static void ClickUiText(CommandParameters parameters, CommandResponse response)
