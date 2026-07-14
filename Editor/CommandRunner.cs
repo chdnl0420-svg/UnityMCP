@@ -18,7 +18,7 @@ namespace ProjectMQaMcp.Editor
         private const string LogPrefix = "[ProjectMQaMcp]";
         // Monotonic sentinel: bump on every deploy so callers can verify a re-resolved
         // package actually loaded the new bridge code (absence->presence is unambiguous).
-        private const int BridgeProtocolVersion = 7;
+        private const int BridgeProtocolVersion = 8;
         private const double PollIntervalSeconds = 1.0;
         private const float FallbackClickMaxNormalizedDistanceSqr = 0.18f;
         private const int FallbackClickMinSharedHierarchy = 3;
@@ -169,6 +169,12 @@ namespace ProjectMQaMcp.Editor
                     break;
                 case "click_ngui_object":
                     ClickNguiObject(parameters, response);
+                    break;
+                case "scroll":
+                    ScrollAt(parameters, response);
+                    break;
+                case "drag":
+                    DragBetween(parameters, response);
                     break;
                 case "click_at":
                     ClickAt(parameters, response);
@@ -1437,6 +1443,133 @@ namespace ProjectMQaMcp.Editor
             }
         }
 
+        // Mouse-wheel scroll over a normalized screen point.
+        // NGUI routes wheel input to the hovered widget, but a QA driver has no real hover
+        // state, so we raycast the point ourselves and walk up to the owning UIScrollView.
+        // UIScrollView.Scroll(delta) is the same entry point UICamera uses for the wheel,
+        // so this reproduces a real wheel scroll rather than teleporting the panel.
+        private static void ScrollAt(CommandParameters parameters, CommandResponse response)
+        {
+            var pointX = ResolvePointX(parameters);
+            var pointY = ResolvePointY(parameters);
+            var screenPos = new Vector3(Mathf.Clamp01(pointX) * Screen.width,
+                (1f - Mathf.Clamp01(pointY)) * Screen.height, 0f);
+
+            var amount = Mathf.Approximately(parameters.amount, 0f) ? 1f : parameters.amount;
+            var dir = (parameters.direction ?? "down").ToLowerInvariant();
+            // NGUI wheel convention: positive delta scrolls the content up (view moves toward top).
+            var delta = dir == "up" ? amount : -amount;
+
+            var target = NguiRaycast(screenPos);
+            if (target == null)
+            {
+                response.success = false;
+                response.error = new CommandError
+                {
+                    message = $"No UI target hit at normalized ({pointX}, {pointY}) - nothing to scroll."
+                };
+                return;
+            }
+
+            var scrollView = FindComponentUpwards(target, "UIScrollView");
+            if (scrollView == null)
+            {
+                response.success = false;
+                response.error = new CommandError
+                {
+                    message = $"Hit '{GetHierarchyPath(target)}' has no UIScrollView in its parents - this area does not scroll."
+                };
+                return;
+            }
+
+            var scrollMethod = scrollView.GetType().GetMethod("Scroll",
+                BindingFlags.Public | BindingFlags.Instance, null, new[] { typeof(float) }, null);
+            if (scrollMethod == null)
+            {
+                response.success = false;
+                response.error = new CommandError { message = "UIScrollView.Scroll(float) not found." };
+                return;
+            }
+
+            var steps = parameters.steps > 0 ? parameters.steps : 1;
+            for (var i = 0; i < steps; i++)
+            {
+                scrollMethod.Invoke(scrollView, new object[] { delta });
+            }
+
+            response.AddOutput("scrollViewPath", GetHierarchyPath(((Component)scrollView).gameObject));
+            response.AddOutput("hitPath", GetHierarchyPath(target));
+            response.AddOutput("direction", dir);
+            response.AddOutput("delta", delta.ToString("F3"));
+            response.AddOutput("steps", steps.ToString());
+            response.AddOutput("scrolled", "true");
+        }
+
+        // Press-move-release drag from one normalized point to another.
+        // NGUI delivers drags as OnPress(true) -> repeated OnDrag(delta) -> OnPress(false),
+        // so we replay that sequence. steps splits the travel into increments because
+        // UIScrollView applies momentum per OnDrag; a single huge delta scrolls differently
+        // than a real swipe of the same distance.
+        private static void DragBetween(CommandParameters parameters, CommandResponse response)
+        {
+            var fromX = ResolvePointX(parameters);
+            var fromY = ResolvePointY(parameters);
+            var toX = Mathf.Clamp01(parameters.toX);
+            var toY = Mathf.Clamp01(parameters.toY);
+            var fromScreen = new Vector3(Mathf.Clamp01(fromX) * Screen.width,
+                (1f - Mathf.Clamp01(fromY)) * Screen.height, 0f);
+            var toScreen = new Vector3(toX * Screen.width, (1f - toY) * Screen.height, 0f);
+
+            var target = NguiRaycast(fromScreen);
+            if (target == null)
+            {
+                response.success = false;
+                response.error = new CommandError
+                {
+                    message = $"No UI target hit at normalized ({fromX}, {fromY}) - nothing to drag."
+                };
+                return;
+            }
+
+            var steps = parameters.steps > 0 ? parameters.steps : 10;
+            var total = new Vector2(toScreen.x - fromScreen.x, toScreen.y - fromScreen.y);
+            var step = total / steps;
+
+            NotifyNgui(target, "OnPress", true);
+            for (var i = 0; i < steps; i++)
+            {
+                NotifyNgui(target, "OnDrag", step);
+            }
+            NotifyNgui(target, "OnPress", false);
+
+            response.AddOutput("hitPath", GetHierarchyPath(target));
+            response.AddOutput("hitName", target.name);
+            response.AddOutput("fromScreen", $"{fromScreen.x:F1},{fromScreen.y:F1}");
+            response.AddOutput("toScreen", $"{toScreen.x:F1},{toScreen.y:F1}");
+            response.AddOutput("totalDelta", $"{total.x:F1},{total.y:F1}");
+            response.AddOutput("steps", steps.ToString());
+            response.AddOutput("dragged", "true");
+        }
+
+        // Walk the parent chain looking for a component by type name (NGUI types live in
+        // the game assembly, so we cannot reference them directly from an editor script).
+        private static object FindComponentUpwards(GameObject go, string typeName)
+        {
+            var t = go.transform;
+            while (t != null)
+            {
+                foreach (var c in t.GetComponents<Component>())
+                {
+                    if (c != null && c.GetType().Name == typeName)
+                    {
+                        return c;
+                    }
+                }
+                t = t.parent;
+            }
+            return null;
+        }
+
         private static void ClickUiText(CommandParameters parameters, CommandResponse response)
         {
             var text = ResolveText(parameters);
@@ -2263,6 +2396,11 @@ namespace ProjectMQaMcp.Editor
         public bool actionableOnly;
         public float pointX;
         public float pointY;
+        public float toX;
+        public float toY;
+        public float amount;
+        public int steps;
+        public string direction;
         public float x;
         public float y;
         public float clickX;
@@ -2298,6 +2436,11 @@ namespace ProjectMQaMcp.Editor
         public bool actionableOnly;
         public float pointX;
         public float pointY;
+        public float toX;
+        public float toY;
+        public float amount;
+        public int steps;
+        public string direction;
         public float x;
         public float y;
         public float clickX;
