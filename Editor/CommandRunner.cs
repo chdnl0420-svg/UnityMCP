@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Reflection;
@@ -18,8 +19,8 @@ namespace ProjectMQaMcp.Editor
         private const string LogPrefix = "[ProjectMQaMcp]";
         // Monotonic sentinel: bump on every deploy so callers can verify a re-resolved
         // package actually loaded the new bridge code (absence->presence is unambiguous).
-        private const int BridgeProtocolVersion = 8;
-        private const double PollIntervalSeconds = 1.0;
+        private const int BridgeProtocolVersion = 9;
+        private const double PollIntervalSeconds = 0.1;
         private const float FallbackClickMaxNormalizedDistanceSqr = 0.18f;
         private const int FallbackClickMinSharedHierarchy = 3;
         private const float VisibleBoundsPadding = 0.02f;
@@ -238,6 +239,33 @@ namespace ProjectMQaMcp.Editor
                     break;
                 case "get_component":
                     GetComponent(parameters, response);
+                    break;
+                case "execute_menu_item":
+                    ExecuteMenuItemCommand(parameters, response);
+                    break;
+                case "invoke_static_method":
+                    InvokeStaticMethod(parameters, response);
+                    break;
+                case "list_editor_windows":
+                    ListEditorWindows(parameters, response);
+                    break;
+                case "get_editor_window_info":
+                    GetEditorWindowInfo(parameters, response);
+                    break;
+                case "capture_editor_window":
+                    CaptureEditorWindow(parameters, response);
+                    break;
+                case "get_editor_prefs":
+                    GetEditorPrefs(parameters, response);
+                    break;
+                case "set_editor_prefs":
+                    SetEditorPrefs(parameters, response);
+                    break;
+                case "get_asset_guid":
+                    GetAssetGuid(parameters, response);
+                    break;
+                case "import_asset":
+                    ImportAsset(parameters, response);
                     break;
                 default:
                     throw new NotSupportedException($"Unsupported command: {request.command}");
@@ -946,6 +974,334 @@ namespace ProjectMQaMcp.Editor
             response.AddOutput("fields", string.Join("\n", lines));
         }
 
+        // --- Editor tool QA commands ---------------------------------------------------------
+        // These drive Unity's Editor layer (menus, tool logic, EditorPrefs, AssetDatabase) so
+        // editor-tool CLs can be QA'd headlessly. The bridge runs on the main thread from
+        // EditorApplication.update, so anything that opens a modal dialog (EditorUtility.Display*
+        // or a native OpenFilePanel) would block this poll loop. The intended pattern is to skip
+        // the dialog and drive the underlying logic directly via invoke_static_method.
+
+        private static void ExecuteMenuItemCommand(CommandParameters parameters, CommandResponse response)
+        {
+            var menuPath = Require(parameters.menuItemPath, "menuItemPath");
+            var executed = EditorApplication.ExecuteMenuItem(menuPath);
+            response.AddOutput("menuItemPath", menuPath);
+            response.AddOutput("executed", executed.ToString());
+            if (!executed)
+            {
+                response.success = false;
+                response.error = new CommandError
+                {
+                    message = $"ExecuteMenuItem returned false for '{menuPath}' (menu item not found or currently disabled)."
+                };
+            }
+        }
+
+        // Reflection-invokes a public OR non-public static method with string arguments converted
+        // to each parameter's type. This is the key that lets QA bypass a modal dialog: instead of
+        // clicking "OK" in a DisplayDialogComplex, call the static logic the dialog would have run
+        // (e.g. BuildTool.Build(2) for "mode=2 / skip reverse-dependency check") directly.
+        private static void InvokeStaticMethod(CommandParameters parameters, CommandResponse response)
+        {
+            var typeName = Require(parameters.typeName, "typeName");
+            var methodName = Require(parameters.methodName, "methodName");
+            var args = parameters.methodArgs ?? new List<string>();
+
+            var type = ResolveType(typeName);
+            if (type == null)
+            {
+                throw new InvalidOperationException($"Type not found: {typeName}");
+            }
+
+            const BindingFlags staticFlags = BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static;
+            var candidates = type.GetMethods(staticFlags)
+                .Where(m => m.Name == methodName && m.GetParameters().Length == args.Count)
+                .ToList();
+            if (candidates.Count == 0)
+            {
+                var arities = type.GetMethods(staticFlags)
+                    .Where(m => m.Name == methodName)
+                    .Select(m => m.GetParameters().Length + "-arg")
+                    .Distinct();
+                throw new InvalidOperationException(
+                    $"No static method '{methodName}' taking {args.Count} argument(s) on {type.FullName}. " +
+                    $"Overloads found: {string.Join(", ", arities)}");
+            }
+
+            MethodInfo chosen = null;
+            object[] converted = null;
+            var conversionErrors = new List<string>();
+            foreach (var candidate in candidates)
+            {
+                if (TryConvertArgs(candidate.GetParameters(), args, out var values, out var err))
+                {
+                    chosen = candidate;
+                    converted = values;
+                    break;
+                }
+
+                conversionErrors.Add(err);
+            }
+
+            if (chosen == null)
+            {
+                throw new InvalidOperationException(
+                    $"Could not bind arguments for '{methodName}': {string.Join("; ", conversionErrors)}");
+            }
+
+            var result = chosen.Invoke(null, converted);
+            response.AddOutput("type", type.FullName);
+            response.AddOutput("method", methodName);
+            response.AddOutput("argCount", args.Count.ToString());
+            response.AddOutput("returnType", chosen.ReturnType.Name);
+            response.AddOutput("returnValue", result == null ? "null" : result.ToString());
+        }
+
+        private static bool TryConvertArgs(ParameterInfo[] paramInfos, List<string> args, out object[] values, out string error)
+        {
+            values = new object[paramInfos.Length];
+            error = null;
+            for (var i = 0; i < paramInfos.Length; i++)
+            {
+                var targetType = paramInfos[i].ParameterType;
+                try
+                {
+                    values[i] = ConvertArg(args[i], targetType);
+                }
+                catch (Exception e)
+                {
+                    error = $"arg {i} ('{args[i]}') -> {targetType.Name}: {e.Message}";
+                    return false;
+                }
+            }
+
+            return true;
+        }
+
+        private static object ConvertArg(string raw, Type targetType)
+        {
+            if (targetType == typeof(string)) return raw;
+            if (targetType.IsEnum) return Enum.Parse(targetType, raw, true);
+            if (targetType == typeof(bool)) return bool.Parse(raw);
+            if (targetType == typeof(int)) return int.Parse(raw, CultureInfo.InvariantCulture);
+            if (targetType == typeof(long)) return long.Parse(raw, CultureInfo.InvariantCulture);
+            if (targetType == typeof(short)) return short.Parse(raw, CultureInfo.InvariantCulture);
+            if (targetType == typeof(byte)) return byte.Parse(raw, CultureInfo.InvariantCulture);
+            if (targetType == typeof(float)) return float.Parse(raw, CultureInfo.InvariantCulture);
+            if (targetType == typeof(double)) return double.Parse(raw, CultureInfo.InvariantCulture);
+            return Convert.ChangeType(raw, targetType, CultureInfo.InvariantCulture);
+        }
+
+        private static Type ResolveType(string typeName)
+        {
+            var direct = Type.GetType(typeName);
+            if (direct != null) return direct;
+
+            var assemblies = AppDomain.CurrentDomain.GetAssemblies();
+            foreach (var assembly in assemblies)
+            {
+                var t = assembly.GetType(typeName);
+                if (t != null) return t;
+            }
+
+            // Fall back to a full-name / simple-name scan so callers do not need the
+            // assembly-qualified name for editor tool types.
+            foreach (var assembly in assemblies)
+            {
+                Type[] types;
+                try
+                {
+                    types = assembly.GetTypes();
+                }
+                catch
+                {
+                    continue;
+                }
+
+                var match = types.FirstOrDefault(x => x.FullName == typeName || x.Name == typeName);
+                if (match != null) return match;
+            }
+
+            return null;
+        }
+
+        private static void ListEditorWindows(CommandParameters parameters, CommandResponse response)
+        {
+            var windows = Resources.FindObjectsOfTypeAll<EditorWindow>();
+            var lines = new List<string>();
+            foreach (var window in windows)
+            {
+                if (window == null) continue;
+                var title = window.titleContent != null ? window.titleContent.text : string.Empty;
+                var pos = window.position;
+                lines.Add($"{window.GetType().FullName}\ttitle={title}\trect={pos.x:F0},{pos.y:F0},{pos.width:F0},{pos.height:F0}\thasFocus={window.hasFocus}");
+            }
+
+            response.AddOutput("count", lines.Count.ToString());
+            response.AddOutput("windows", string.Join("\n", lines));
+        }
+
+        private static void GetEditorWindowInfo(CommandParameters parameters, CommandResponse response)
+        {
+            var typeName = Require(parameters.typeName, "typeName");
+            var windows = Resources.FindObjectsOfTypeAll<EditorWindow>()
+                .Where(w => w != null && (w.GetType().FullName == typeName || w.GetType().Name == typeName))
+                .ToList();
+            if (windows.Count == 0)
+            {
+                response.AddOutput("open", "false");
+                response.success = false;
+                response.error = new CommandError { message = $"No open EditorWindow matching '{typeName}'." };
+                return;
+            }
+
+            var window = windows[0];
+            var pos = window.position;
+            response.AddOutput("open", "true");
+            response.AddOutput("type", window.GetType().FullName);
+            response.AddOutput("title", window.titleContent != null ? window.titleContent.text : string.Empty);
+            response.AddOutput("rect", $"{pos.x:F1},{pos.y:F1},{pos.width:F1},{pos.height:F1}");
+            response.AddOutput("hasFocus", window.hasFocus.ToString());
+            response.AddOutput("matchCount", windows.Count.ToString());
+        }
+
+        // Captures the pixels of an Editor tool window (not the game camera) by reading the
+        // desktop screen region the window occupies. Coordinate math is DPI-aware but assumes the
+        // window is on the primary display; the computed read rect is returned so callers can
+        // eyeball-verify the capture. Best-effort: minor offsets on multi-monitor setups are
+        // possible and detectable from the output image.
+        private static void CaptureEditorWindow(CommandParameters parameters, CommandResponse response)
+        {
+            var typeName = Require(parameters.typeName, "typeName");
+            var outputPath = Require(parameters.outputPath, "outputPath");
+            var window = Resources.FindObjectsOfTypeAll<EditorWindow>()
+                .FirstOrDefault(w => w != null && (w.GetType().FullName == typeName || w.GetType().Name == typeName));
+            if (window == null)
+            {
+                response.success = false;
+                response.error = new CommandError
+                {
+                    message = $"No open EditorWindow matching '{typeName}'. Open it first (e.g. execute_menu_item)."
+                };
+                return;
+            }
+
+            window.Focus();
+            window.Repaint();
+
+            var ppp = EditorGUIUtility.pixelsPerPoint;
+            var pos = window.position; // top-left origin, in points, editor screen space
+            var widthPx = Mathf.Max(1, Mathf.RoundToInt(pos.width * ppp));
+            var heightPx = Mathf.Max(1, Mathf.RoundToInt(pos.height * ppp));
+
+            // ReadScreenPixel reads the OS desktop with a bottom-left origin in pixels, while
+            // EditorWindow.position is top-left origin in points; flip Y using the desktop height.
+            var screenHeightPx = Screen.currentResolution.height;
+            var pixelX = pos.x * ppp;
+            var pixelY = screenHeightPx - (pos.y + pos.height) * ppp;
+
+            Directory.CreateDirectory(Path.GetDirectoryName(outputPath) ?? ".");
+
+            var pixels = UnityEditorInternal.InternalEditorUtility.ReadScreenPixel(
+                new Vector2(pixelX, pixelY), widthPx, heightPx);
+            if (pixels == null || pixels.Length < widthPx * heightPx)
+            {
+                response.success = false;
+                response.error = new CommandError { message = "ReadScreenPixel returned insufficient pixel data." };
+                return;
+            }
+
+            var texture = new Texture2D(widthPx, heightPx, TextureFormat.RGB24, false);
+            try
+            {
+                texture.SetPixels(pixels);
+                texture.Apply();
+                File.WriteAllBytes(outputPath, texture.EncodeToPNG());
+            }
+            finally
+            {
+                Object.DestroyImmediate(texture);
+            }
+
+            var info = new FileInfo(outputPath);
+            response.AddOutput("type", window.GetType().FullName);
+            response.AddOutput("outputPath", outputPath);
+            response.AddOutput("width", widthPx.ToString());
+            response.AddOutput("height", heightPx.ToString());
+            response.AddOutput("pixelsPerPoint", ppp.ToString("F2"));
+            response.AddOutput("readOrigin", $"{pixelX:F0},{pixelY:F0}");
+            response.AddOutput("pngBytes", info.Exists ? info.Length.ToString() : "0");
+        }
+
+        private static void GetEditorPrefs(CommandParameters parameters, CommandResponse response)
+        {
+            var key = Require(parameters.prefsKey, "prefsKey");
+            var type = (parameters.prefsType ?? "string").ToLowerInvariant();
+            var hasKey = EditorPrefs.HasKey(key);
+            string value;
+            switch (type)
+            {
+                case "int": value = EditorPrefs.GetInt(key).ToString(); break;
+                case "float": value = EditorPrefs.GetFloat(key).ToString(CultureInfo.InvariantCulture); break;
+                case "bool": value = EditorPrefs.GetBool(key).ToString(); break;
+                case "string": value = EditorPrefs.GetString(key); break;
+                default: throw new ArgumentException($"prefsType must be string|int|float|bool, got '{type}'.");
+            }
+
+            response.AddOutput("key", key);
+            response.AddOutput("type", type);
+            response.AddOutput("hasKey", hasKey.ToString());
+            response.AddOutput("value", value);
+        }
+
+        private static void SetEditorPrefs(CommandParameters parameters, CommandResponse response)
+        {
+            var key = Require(parameters.prefsKey, "prefsKey");
+            var type = (parameters.prefsType ?? "string").ToLowerInvariant();
+            var raw = parameters.prefsValue ?? string.Empty;
+            switch (type)
+            {
+                case "int": EditorPrefs.SetInt(key, int.Parse(raw, CultureInfo.InvariantCulture)); break;
+                case "float": EditorPrefs.SetFloat(key, float.Parse(raw, CultureInfo.InvariantCulture)); break;
+                case "bool": EditorPrefs.SetBool(key, bool.Parse(raw)); break;
+                case "string": EditorPrefs.SetString(key, raw); break;
+                default: throw new ArgumentException($"prefsType must be string|int|float|bool, got '{type}'.");
+            }
+
+            response.AddOutput("key", key);
+            response.AddOutput("type", type);
+            response.AddOutput("value", raw);
+            response.AddOutput("set", "true");
+        }
+
+        private static void GetAssetGuid(CommandParameters parameters, CommandResponse response)
+        {
+            var assetPath = Require(parameters.assetPath, "assetPath");
+            var guid = AssetDatabase.AssetPathToGUID(assetPath);
+            response.AddOutput("assetPath", assetPath);
+            response.AddOutput("guid", guid ?? string.Empty);
+            response.AddOutput("exists", string.IsNullOrEmpty(guid) ? "false" : "true");
+            if (!string.IsNullOrEmpty(guid))
+            {
+                var type = AssetDatabase.GetMainAssetTypeAtPath(assetPath);
+                if (type != null) response.AddOutput("assetType", type.Name);
+            }
+        }
+
+        private static void ImportAsset(CommandParameters parameters, CommandResponse response)
+        {
+            var assetPath = Require(parameters.assetPath, "assetPath");
+            var options = ImportAssetOptions.Default;
+            if (parameters.forceUpdate) options |= ImportAssetOptions.ForceUpdate;
+            if (parameters.importRecursive) options |= ImportAssetOptions.ImportRecursive;
+            AssetDatabase.ImportAsset(assetPath, options);
+            response.AddOutput("assetPath", assetPath);
+            response.AddOutput("forceUpdate", parameters.forceUpdate.ToString());
+            response.AddOutput("recursive", parameters.importRecursive.ToString());
+            response.AddOutput("imported", "true");
+            response.AddOutput("isPlaying", Application.isPlaying.ToString());
+        }
+
         private static bool TryFormatMember(string name, Func<object> read, List<string> lines)
         {
             try
@@ -1105,7 +1461,17 @@ namespace ProjectMQaMcp.Editor
                     maxDepth = command.maxDepth,
                     value = command.value,
                     nameQuery = command.nameQuery,
-                    componentName = command.componentName
+                    componentName = command.componentName,
+                    menuItemPath = command.menuItemPath,
+                    typeName = command.typeName,
+                    methodName = command.methodName,
+                    methodArgs = command.methodArgs,
+                    prefsKey = command.prefsKey,
+                    prefsType = command.prefsType,
+                    prefsValue = command.prefsValue,
+                    assetPath = command.assetPath,
+                    forceUpdate = command.forceUpdate,
+                    importRecursive = command.importRecursive
                 }
             };
         }
@@ -2381,6 +2747,17 @@ namespace ProjectMQaMcp.Editor
         public string value;
         public string nameQuery;
         public string componentName;
+        // Editor tool QA command fields.
+        public string menuItemPath;
+        public string typeName;
+        public string methodName;
+        public List<string> methodArgs;
+        public string prefsKey;
+        public string prefsType;
+        public string prefsValue;
+        public string assetPath;
+        public bool forceUpdate;
+        public bool importRecursive;
         public List<BatchCommand> commands;
     }
 
@@ -2421,6 +2798,16 @@ namespace ProjectMQaMcp.Editor
         public string value;
         public string nameQuery;
         public string componentName;
+        public string menuItemPath;
+        public string typeName;
+        public string methodName;
+        public List<string> methodArgs;
+        public string prefsKey;
+        public string prefsType;
+        public string prefsValue;
+        public string assetPath;
+        public bool forceUpdate;
+        public bool importRecursive;
     }
 
     [Serializable]

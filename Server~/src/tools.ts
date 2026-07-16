@@ -281,6 +281,99 @@ export function registerTools(server: McpServer): void {
     componentName: params.componentName,
     includeInactive: params.includeInactive ?? false,
   })));
+
+  // --- Editor tool QA tools ---------------------------------------------------------------
+  server.tool('unity_execute_menu_item', 'Executes a Unity Editor menu item by path (e.g. "Assets/Refresh", "Tools/AssetBundle/Build"). Use to open a tool window or trigger a menu-driven action.', {
+    ...baseConfigShape,
+    menuItemPath: z.string().min(1),
+    timeoutMs: timeoutSchema,
+  }, async (params) => toToolResult(await unitySimpleCommand(params, 'execute_menu_item', {
+    menuItemPath: params.menuItemPath,
+  })));
+
+  server.tool('unity_invoke_static_method', 'Reflection-invokes a public or non-public static C# method with string arguments (converted to each parameter type). The key tool for QAing editor tools headlessly: call the underlying logic directly instead of clicking a modal dialog. Example: typeName "MyTool.EditorBuild", methodName "Run", methodArgs ["2"].', {
+    ...baseConfigShape,
+    typeName: z.string().min(1),
+    methodName: z.string().min(1),
+    methodArgs: z.array(z.string()).optional(),
+    timeoutMs: timeoutSchema,
+  }, async (params) => toToolResult(await unitySimpleCommand(params, 'invoke_static_method', {
+    typeName: params.typeName,
+    methodName: params.methodName,
+    methodArgs: params.methodArgs ?? [],
+  })));
+
+  server.tool('unity_list_editor_windows', 'Lists all currently open EditorWindows (type, title, rect, focus). Use to verify a tool window actually opened.', {
+    ...baseConfigShape,
+    timeoutMs: timeoutSchema,
+  }, async (params) => toToolResult(await unitySimpleCommand(params, 'list_editor_windows', {})));
+
+  server.tool('unity_get_editor_window_info', 'Returns info (title, rect, focus) for an open EditorWindow matched by full or simple type name.', {
+    ...baseConfigShape,
+    typeName: z.string().min(1),
+    timeoutMs: timeoutSchema,
+  }, async (params) => toToolResult(await unitySimpleCommand(params, 'get_editor_window_info', {
+    typeName: params.typeName,
+  })));
+
+  server.tool('unity_capture_editor_window', 'Captures a screenshot of an Editor tool window (not the game camera) by reading its desktop screen region. Use to see a tool UI that the game-view screenshot cannot show.', {
+    ...baseConfigShape,
+    typeName: z.string().min(1),
+    outputPath: z.string().optional(),
+    timeoutMs: timeoutSchema,
+  }, async (params) => toToolResult(await unityCaptureEditorWindow(params)));
+
+  server.tool('unity_get_editor_prefs', 'Reads an EditorPrefs value by key and type (string|int|float|bool). Editor tools often gate behavior on EditorPrefs.', {
+    ...baseConfigShape,
+    key: z.string().min(1),
+    type: z.enum(['string', 'int', 'float', 'bool']).optional(),
+    timeoutMs: timeoutSchema,
+  }, async (params) => toToolResult(await unitySimpleCommand(params, 'get_editor_prefs', {
+    prefsKey: params.key,
+    prefsType: params.type ?? 'string',
+  })));
+
+  server.tool('unity_set_editor_prefs', 'Writes an EditorPrefs value by key and type (string|int|float|bool). Use to put an editor tool into a specific test state before driving it.', {
+    ...baseConfigShape,
+    key: z.string().min(1),
+    value: z.string(),
+    type: z.enum(['string', 'int', 'float', 'bool']).optional(),
+    timeoutMs: timeoutSchema,
+  }, async (params) => toToolResult(await unitySimpleCommand(params, 'set_editor_prefs', {
+    prefsKey: params.key,
+    prefsValue: params.value,
+    prefsType: params.type ?? 'string',
+  })));
+
+  server.tool('unity_get_asset_guid', 'Returns the GUID and main asset type for a project-relative asset path (e.g. "Assets/Foo.prefab"). Empty guid means the asset does not exist.', {
+    ...baseConfigShape,
+    assetPath: z.string().min(1),
+    timeoutMs: timeoutSchema,
+  }, async (params) => toToolResult(await unitySimpleCommand(params, 'get_asset_guid', {
+    assetPath: params.assetPath,
+  })));
+
+  server.tool('unity_import_asset', 'Reimports a project asset (AssetDatabase.ImportAsset). Use to force Unity to pick up a file an editor tool wrote. Optionally force-update and/or recurse into a folder.', {
+    ...baseConfigShape,
+    assetPath: z.string().min(1),
+    forceUpdate: z.boolean().optional(),
+    recursive: z.boolean().optional(),
+    timeoutMs: timeoutSchema,
+  }, async (params) => toToolResult(await unitySimpleCommand(params, 'import_asset', {
+    assetPath: params.assetPath,
+    forceUpdate: params.forceUpdate ?? false,
+    importRecursive: params.recursive ?? false,
+  })));
+
+  server.tool('unity_assert_path_exists', 'Checks whether a file or directory exists on disk and reports its size (pure filesystem check, no Unity round-trip). Use to verify build outputs an editor tool produced.', {
+    path: z.string().min(1),
+    expectExists: z.boolean().optional(),
+  }, async (params) => toToolResult(await unityAssertPathExists(params)));
+
+  server.tool('unity_read_text_file', 'Reads a UTF-8 text file from disk (pure filesystem, no Unity). Reads the tail when the file exceeds maxBytes. Use to inspect logs/manifests an editor tool produced.', {
+    path: z.string().min(1),
+    maxBytes: z.number().int().positive().max(5 * 1024 * 1024).optional(),
+  }, async (params) => toToolResult(await unityReadTextFile(params)));
 }
 
 async function unityStatus(params: any): Promise<unknown> {
@@ -576,6 +669,65 @@ async function unityRecompile(params: any): Promise<unknown> {
       runOnce: false,
     }),
   });
+}
+
+async function unityCaptureEditorWindow(params: any): Promise<unknown> {
+  const config = resolveProjectConfig(params);
+  const outputPath = params.outputPath || join(config.commandRoot, 'screenshots', `editor-window-${Date.now()}.png`);
+  const response = await executeEditorCommand({
+    unityPath: config.unityPath,
+    projectPath: config.projectPath,
+    commandRoot: config.commandRoot,
+    command: 'capture_editor_window',
+    parameters: {
+      typeName: params.typeName,
+      outputPath,
+    },
+    timeoutMs: params.timeoutMs ?? 15000,
+    runOnce: false,
+  });
+  const bytes = await fileSize(outputPath);
+  return {
+    ...response,
+    outputPath,
+    pngBytes: bytes,
+    pngExists: bytes > 0,
+  };
+}
+
+async function unityAssertPathExists(params: any): Promise<unknown> {
+  const exists = await pathExists(params.path);
+  const bytes = exists ? await fileSize(params.path) : 0;
+  const expectExists = params.expectExists ?? true;
+  return {
+    success: exists === expectExists,
+    path: params.path,
+    exists,
+    sizeBytes: bytes,
+    expectExists,
+  };
+}
+
+async function unityReadTextFile(params: any): Promise<unknown> {
+  if (!await pathExists(params.path)) {
+    return {
+      success: false,
+      path: params.path,
+      error: `File not found: ${params.path}`,
+    };
+  }
+
+  const maxBytes = params.maxBytes ?? 256 * 1024;
+  const size = await fileSize(params.path);
+  const truncated = size > maxBytes;
+  const text = truncated ? await readTail(params.path, maxBytes) : await readFile(params.path, 'utf8');
+  return {
+    success: true,
+    path: params.path,
+    sizeBytes: size,
+    truncated,
+    text,
+  };
 }
 
 async function unitySimpleCommand(params: any, command: string, parameters: Record<string, unknown>): Promise<unknown> {
