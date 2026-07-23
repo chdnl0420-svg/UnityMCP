@@ -29,6 +29,8 @@ namespace ProjectMQaMcp.Editor
         private const string LogPrefix = "[ProjectMQaMcp]";
         private const string CurrentRunKey = "ProjectMQaMcp.CurrentTestRunId";
 
+        private static bool testListScanInFlight;
+
         internal static readonly string[] SupportedCommands =
         {
             "run_tests",
@@ -79,7 +81,13 @@ namespace ProjectMQaMcp.Editor
             return Path.Combine(ResultsDirectory(), "testlist-" + mode + ".json");
         }
 
-        /// <summary>Pulls one array out of the stored JSON without dragging in a JSON parser.</summary>
+        /// <summary>
+        /// Pulls one array out of the stored JSON without dragging in a JSON parser.
+        ///
+        /// String contents must be skipped rather than scanned: NUnit test names really do contain
+        /// square brackets, and counting those as structure leaves the depth unbalanced so the array
+        /// never appears to close - which reads as "no tests" while the file plainly holds hundreds.
+        /// </summary>
         private static string ExtractJsonArray(string json, string key)
         {
             var needle = "\"" + key + "\":[";
@@ -91,10 +99,30 @@ namespace ProjectMQaMcp.Editor
 
             var start = index + needle.Length - 1;
             var depth = 0;
+            var inString = false;
+            var escaped = false;
+
             for (var i = start; i < json.Length; i++)
             {
-                if (json[i] == '[') depth++;
-                else if (json[i] == ']')
+                var c = json[i];
+
+                if (inString)
+                {
+                    if (escaped) escaped = false;
+                    else if (c == '\\') escaped = true;
+                    else if (c == '"') inString = false;
+                    continue;
+                }
+
+                if (c == '"')
+                {
+                    inString = true;
+                }
+                else if (c == '[')
+                {
+                    depth++;
+                }
+                else if (c == ']')
                 {
                     depth--;
                     if (depth == 0)
@@ -201,31 +229,48 @@ namespace ProjectMQaMcp.Editor
             var cachePath = TestListPath(modeText);
             var limit = p.maxEntries > 0 ? p.maxEntries : 2000;
 
-            try
+            // Only scan when there is nothing to serve, or the caller explicitly asked for a refresh -
+            // and never while one is already running. Firing a scan on every poll stacks test-framework
+            // work on the editor's update loop for no benefit.
+            var haveCache = File.Exists(cachePath);
+            var wantScan = (!haveCache || p.refresh) && !testListScanInFlight;
+
+            if (wantScan)
             {
-                var api = ScriptableObject.CreateInstance<TestRunnerApi>();
-                api.RetrieveTestList(mode, root =>
+                testListScanInFlight = true;
+                try
                 {
-                    try
+                    var api = ScriptableObject.CreateInstance<TestRunnerApi>();
+                    api.RetrieveTestList(mode, root =>
                     {
-                        var collected = new List<string>();
-                        CollectTestNames(root, collected, limit);
-                        File.WriteAllText(cachePath,
-                            "{\"testMode\":\"" + EditorToolBridge.Esc(modeText) + "\"," +
-                            "\"builtAtUtc\":\"" + DateTime.UtcNow.ToString("o", CultureInfo.InvariantCulture) + "\"," +
-                            "\"count\":" + collected.Count.ToString(CultureInfo.InvariantCulture) + "," +
-                            "\"tests\":[" + string.Join(",", collected.ToArray()) + "]}");
-                    }
-                    catch (Exception e)
-                    {
-                        UnityEngine.Debug.LogError($"{LogPrefix} failed to write test list: {e}");
-                    }
-                });
+                        try
+                        {
+                            var collected = new List<string>();
+                            CollectTestNames(root, collected, limit);
+                            File.WriteAllText(cachePath,
+                                "{\"testMode\":\"" + EditorToolBridge.Esc(modeText) + "\"," +
+                                "\"builtAtUtc\":\"" + DateTime.UtcNow.ToString("o", CultureInfo.InvariantCulture) + "\"," +
+                                "\"count\":" + collected.Count.ToString(CultureInfo.InvariantCulture) + "," +
+                                "\"tests\":[" + string.Join(",", collected.ToArray()) + "]}");
+                        }
+                        catch (Exception e)
+                        {
+                            UnityEngine.Debug.LogError($"{LogPrefix} failed to write test list: {e}");
+                        }
+                        finally
+                        {
+                            testListScanInFlight = false;
+                        }
+                    });
+                }
+                catch (Exception e)
+                {
+                    testListScanInFlight = false;
+                    UnityEngine.Debug.LogWarning($"{LogPrefix} RetrieveTestList failed: {e.Message}");
+                }
             }
-            catch (Exception e)
-            {
-                UnityEngine.Debug.LogWarning($"{LogPrefix} RetrieveTestList failed: {e.Message}");
-            }
+
+            response.AddOutput("scanStarted", wantScan ? "true" : "false");
 
             response.AddOutput("testMode", modeText);
             response.AddOutput("cachePath", cachePath);
@@ -249,6 +294,13 @@ namespace ProjectMQaMcp.Editor
 #endif
         }
 
+        /// <summary>
+        /// Splits a filter list on semicolons only.
+        ///
+        /// Commas are not separators here: NUnit names a parameterized test after its arguments, so
+        /// real test names look like Formatting_Hz_IsFormatted(22050,"22.05 KHz"). Splitting on commas
+        /// tears those into fragments that match nothing, and the run then silently does no work.
+        /// </summary>
         private static string[] SplitList(string value)
         {
             if (string.IsNullOrEmpty(value))
@@ -256,7 +308,7 @@ namespace ProjectMQaMcp.Editor
                 return Array.Empty<string>();
             }
 
-            return value.Split(new[] { ';', ',' }, StringSplitOptions.RemoveEmptyEntries);
+            return value.Split(new[] { ';' }, StringSplitOptions.RemoveEmptyEntries);
         }
 
         private static void WriteStatus(string runId, string status, string mode, string extra)

@@ -291,15 +291,17 @@ export function registerEditorTools(server: McpServer): void {
     async (params) => toToolResult(await runBridge(params, 'get_test_results', { runId: params.runId })));
 
   server.tool('unity_list_tests',
-    'Lists the tests the editor knows about for a given mode, so a filter can be built without guessing names.',
+    'Lists the tests the editor knows about for a given mode, so a filter can be built without guessing names. The scan runs across later editor updates, so the first call may return resolved=false; call again to get the result.',
     {
       ...commonShape,
       testMode: z.enum(['EditMode', 'PlayMode']).optional(),
       maxEntries: z.number().int().positive().max(5000).optional(),
+      refresh: z.boolean().optional().describe('Rescan even when a cached list exists.'),
     },
     async (params) => toToolResult(await runBridge(params, 'list_tests', {
       testMode: params.testMode ?? 'EditMode',
       maxEntries: params.maxEntries ?? 2000,
+      refresh: params.refresh ?? false,
     })));
 }
 

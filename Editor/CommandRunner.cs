@@ -620,6 +620,7 @@ namespace ProjectMQaMcp.Editor
         public string assemblyNames;
         public string categoryNames;
         public string runId;
+        public bool refresh;
     }
 
     [Serializable]

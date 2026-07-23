@@ -21741,15 +21741,17 @@ function registerEditorTools(server2) {
   );
   server2.tool(
     "unity_list_tests",
-    "Lists the tests the editor knows about for a given mode, so a filter can be built without guessing names.",
+    "Lists the tests the editor knows about for a given mode, so a filter can be built without guessing names. The scan runs across later editor updates, so the first call may return resolved=false; call again to get the result.",
     {
       ...commonShape,
       testMode: external_exports.enum(["EditMode", "PlayMode"]).optional(),
-      maxEntries: external_exports.number().int().positive().max(5e3).optional()
+      maxEntries: external_exports.number().int().positive().max(5e3).optional(),
+      refresh: external_exports.boolean().optional().describe("Rescan even when a cached list exists.")
     },
     async (params) => toToolResult(await runBridge(params, "list_tests", {
       testMode: params.testMode ?? "EditMode",
-      maxEntries: params.maxEntries ?? 2e3
+      maxEntries: params.maxEntries ?? 2e3,
+      refresh: params.refresh ?? false
     }))
   );
 }

@@ -33,7 +33,7 @@ namespace ProjectMQaMcp.Editor
     /// </summary>
     internal static class EditorToolBridge
     {
-        internal const string BridgeVersion = "0.2.5";
+        internal const string BridgeVersion = "0.2.7";
 
         private const int DefaultMaxDepth = 1;
         private const int ValuePreviewLimit = 400;
