@@ -33,7 +33,7 @@ namespace ProjectMQaMcp.Editor
     /// </summary>
     internal static class EditorToolBridge
     {
-        internal const string BridgeVersion = "0.2.0";
+        internal const string BridgeVersion = "0.2.5";
 
         private const int DefaultMaxDepth = 1;
         private const int ValuePreviewLimit = 400;
@@ -189,8 +189,10 @@ namespace ProjectMQaMcp.Editor
             response.AddOutput("methods", DumpMethods(window));
 
             string layoutDiagnostics;
-            response.AddOutput("layout", DumpLayout(window, out layoutDiagnostics));
+            Vector2 containerOffset;
+            response.AddOutput("layout", DumpLayout(window, out layoutDiagnostics, out containerOffset));
             response.AddOutput("layoutDiagnostics", layoutDiagnostics);
+            response.AddOutput("containerOffset", F(containerOffset.x) + "," + F(containerOffset.y));
             response.AddOutput("visualTree", DumpVisualTree(window));
         }
 
@@ -619,11 +621,19 @@ namespace ProjectMQaMcp.Editor
             Vector2 point;
             if (string.Equals(p.targetMode, "entry", StringComparison.OrdinalIgnoreCase))
             {
-                var rect = ResolveLayoutRect(window, p.entryIndex);
-                point = new Vector2(rect.x + rect.width * 0.5f, rect.y + rect.height * 0.5f);
+                Vector2 containerOffset;
+                var rect = ResolveLayoutRect(window, p.entryIndex, out containerOffset);
+
+                // Layout rects are local to the IMGUIContainer; SendEvent lands in the host view's
+                // space, which also contains the tab strip. Without the offset the click misses high.
+                point = new Vector2(
+                    containerOffset.x + rect.x + rect.width * 0.5f,
+                    containerOffset.y + rect.y + rect.height * 0.5f);
+
                 response.AddOutput("resolvedFrom", "layoutEntry");
                 response.AddOutput("entryIndex", p.entryIndex.ToString(CultureInfo.InvariantCulture));
                 response.AddOutput("entryRect", RectJson(rect));
+                response.AddOutput("containerOffset", F(containerOffset.x) + "," + F(containerOffset.y));
             }
             else
             {
@@ -664,8 +674,11 @@ namespace ProjectMQaMcp.Editor
             response.AddOutput("y", F(point.y));
             response.AddOutput("button", button.ToString(CultureInfo.InvariantCulture));
             response.AddOutput("clickCount", clickCount.ToString(CultureInfo.InvariantCulture));
-            response.AddOutput("mouseDownHandled", downHandled ? "true" : "false");
-            response.AddOutput("mouseUpHandled", upHandled ? "true" : "false");
+            // SendEvent's return value is not a reliable "the control reacted" signal - a click that
+            // genuinely fires a button can still come back false - so these are reported as the raw
+            // return values, not as proof. Confirm the effect by reading the tool's own state.
+            response.AddOutput("mouseDownReturned", downHandled ? "true" : "false");
+            response.AddOutput("mouseUpReturned", upHandled ? "true" : "false");
             response.AddOutput("clicked", "true");
         }
 
@@ -797,38 +810,12 @@ namespace ProjectMQaMcp.Editor
         /// Everything here is reflection over internals, so each step reports why it failed instead of
         /// throwing - a missing layout must not take the whole dump down.
         /// </summary>
-        private static string DumpLayout(EditorWindow window, out string diagnostics)
+        private static string DumpLayout(EditorWindow window, out string diagnostics, out Vector2 offset)
         {
             var notes = new List<string>();
-            var container = FindImguiContainer(window, notes);
-            if (container == null)
+            object topLevel;
+            if (!TryGetBestLayout(window, notes, out topLevel, out offset))
             {
-                diagnostics = string.Join(" | ", notes);
-                return "[]";
-            }
-
-            object cache = null;
-            foreach (var field in container.GetType().GetFields(BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public))
-            {
-                if (field.Name == "m_Cache" || field.FieldType.Name.IndexOf("LayoutCache", StringComparison.Ordinal) >= 0)
-                {
-                    cache = field.GetValue(container);
-                    notes.Add($"cacheField={field.Name}:{field.FieldType.Name}");
-                    break;
-                }
-            }
-
-            if (cache == null)
-            {
-                notes.Add("no LayoutCache field on " + container.GetType().Name);
-                diagnostics = string.Join(" | ", notes);
-                return "[]";
-            }
-
-            var topLevel = ReadMemberByName(cache, "topLevel");
-            if (topLevel == null)
-            {
-                notes.Add("no topLevel on " + cache.GetType().Name);
                 diagnostics = string.Join(" | ", notes);
                 return "[]";
             }
@@ -838,9 +825,245 @@ namespace ProjectMQaMcp.Editor
             WriteLayoutEntry(sb, topLevel, 0, ref index);
             sb.Append(']');
 
-            notes.Add("entries=" + index);
+            notes.Add("entries=" + index.ToString(CultureInfo.InvariantCulture));
             diagnostics = string.Join(" | ", notes);
             return sb.ToString();
+        }
+
+        /// <summary>
+        /// Picks the IMGUIContainer that actually ran the window's OnGUI, and reports where it sits.
+        ///
+        /// A docked window's host view owns several IMGUIContainers - the tab strip and the rest of the
+        /// dock chrome each draw through their own - so the first one found depth-first is usually not
+        /// the window's, and its layout cache looks almost empty. Rather than guess, every candidate is
+        /// measured and the one with the most layout entries wins.
+        ///
+        /// The container's worldBound comes back with it because the two coordinate spaces differ:
+        /// layout rects are local to the container, while SendEvent delivers into the host view's space.
+        /// Clicking without that offset lands above the intended control by the height of the tab strip.
+        /// </summary>
+        private static bool TryGetBestLayout(EditorWindow window, List<string> notes, out object topLevel, out Vector2 offset)
+        {
+            topLevel = null;
+            offset = Vector2.zero;
+
+            // Make the window the active tab first. A docked area only runs OnGUI for the tab on top,
+            // so dumping or clicking a background tab reads a layout that was never built.
+            window.Focus();
+            RepaintImmediate(window);
+
+            var best = -1;
+            Vector2 bestOffset = Vector2.zero;
+
+            foreach (var candidate in CollectLayoutGroups(window, notes))
+            {
+                var count = 0;
+                CountEntries(candidate.Group, 0, ref count);
+
+                var rect = ReadMemberByName(candidate.Group, "rect");
+                var groupRect = rect is Rect ? (Rect)rect : new Rect();
+                notes.Add($"cand[{candidate.Source}]={count}@{F(groupRect.x)},{F(groupRect.y)},{F(groupRect.width)}x{F(groupRect.height)}");
+
+                if (count > best)
+                {
+                    best = count;
+                    topLevel = candidate.Group;
+                    bestOffset = candidate.Offset;
+                }
+            }
+
+            offset = bestOffset;
+
+            if (topLevel != null)
+            {
+                notes.Add("chosen=" + best.ToString(CultureInfo.InvariantCulture) +
+                          " offset=" + F(offset.x) + "," + F(offset.y));
+            }
+
+            return topLevel != null && best > 1;
+        }
+
+        private struct LayoutCandidate
+        {
+            public object Group;
+            public Vector2 Offset;
+            public string Source;
+        }
+
+        /// <summary>
+        /// Gathers every IMGUI layout group that could belong to this window.
+        ///
+        /// Where a window's layout tree actually lives is not something to assume: it may hang off the
+        /// host view's IMGUIContainer cache, or off one of GUILayoutUtility's own per-instance caches.
+        /// So every reachable cache is collected and reported with its entry count and rect, and the
+        /// richest one wins. The diagnostics list every candidate so a wrong pick is visible rather
+        /// than silent.
+        /// </summary>
+        private static List<LayoutCandidate> CollectLayoutGroups(EditorWindow window, List<string> notes)
+        {
+            var found = new List<LayoutCandidate>();
+            var borderTop = BorderTop(window, notes);
+            var contentOffset = new Vector2(0f, borderTop);
+
+            foreach (var container in FindImguiContainers(window, notes))
+            {
+                var cache = FindLayoutCache(container);
+                if (cache == null)
+                {
+                    continue;
+                }
+
+                // The host view's own layout root spans the whole view, while the window's content is
+                // shorter by exactly the chrome above it. That difference is the tab strip, measured
+                // from live layout data rather than assumed from a version-specific constant.
+                var measured = 0f;
+                var hostGroup = ReadMemberByName(cache, "topLevel");
+                var hostRect = hostGroup != null ? ReadMemberByName(hostGroup, "rect") : null;
+                if (hostRect is Rect)
+                {
+                    var difference = ((Rect)hostRect).height - window.position.height;
+                    if (difference > 0f && difference < 60f)
+                    {
+                        measured = difference;
+                    }
+                }
+
+                var tabOffset = measured > 0f ? measured : borderTop;
+                var name = string.IsNullOrEmpty(container.name) ? "unnamed" : container.name;
+                notes.Add($"tabOffset[{name}]={F(tabOffset)} (measured={F(measured)} borderTop={F(borderTop)})");
+
+                AddGroupsFromCache(found, cache, container.worldBound.position, new Vector2(0f, tabOffset), "container:" + name);
+            }
+
+            // GUILayoutUtility keys its caches by instance id, so a window's tree can live there rather
+            // than on any container we can reach through the visual tree.
+            try
+            {
+                foreach (var field in typeof(GUILayoutUtility).GetFields(BindingFlags.Static | BindingFlags.NonPublic | BindingFlags.Public))
+                {
+                    object value;
+                    try { value = field.GetValue(null); }
+                    catch (Exception) { continue; }
+
+                    if (value == null)
+                    {
+                        continue;
+                    }
+
+                    var dictionary = value as IDictionary;
+                    if (dictionary != null)
+                    {
+                        foreach (DictionaryEntry pair in dictionary)
+                        {
+                            AddGroupsFromCache(found, pair.Value, Vector2.zero, contentOffset, $"static:{field.Name}[{pair.Key}]");
+                        }
+
+                        continue;
+                    }
+
+                    if (value.GetType().Name.IndexOf("LayoutCache", StringComparison.Ordinal) >= 0)
+                    {
+                        AddGroupsFromCache(found, value, Vector2.zero, contentOffset, "static:" + field.Name);
+                    }
+                }
+            }
+            catch (Exception e)
+            {
+                notes.Add("GUILayoutUtility scan failed: " + e.Message);
+            }
+
+            notes.Add("candidates=" + found.Count.ToString(CultureInfo.InvariantCulture));
+            return found;
+        }
+
+        private static void AddGroupsFromCache(
+            List<LayoutCandidate> into, object cache, Vector2 viewOffset, Vector2 contentOffset, string source)
+        {
+            if (cache == null)
+            {
+                return;
+            }
+
+            foreach (var member in new[] { "topLevel", "windows" })
+            {
+                var group = ReadMemberByName(cache, member);
+                if (group == null)
+                {
+                    continue;
+                }
+
+                // A docked EditorWindow's OnGUI lands under "windows", laid out in the window's own
+                // content space; "topLevel" is the host view's space, which also covers the tab strip.
+                // Only the former needs the tab strip added back before an injected click can land.
+                var offset = member == "windows" ? viewOffset + contentOffset : viewOffset;
+                into.Add(new LayoutCandidate { Group = group, Offset = offset, Source = source + "." + member });
+            }
+        }
+
+        /// <summary>
+        /// Secondary reading of the chrome above a window's content, from the host view's own border.
+        /// A dock area reports its tab strip as the top border; floating windows report zero. Used as a
+        /// fallback when the layout roots are not available to measure the difference directly.
+        /// </summary>
+        private static float BorderTop(EditorWindow window, List<string> notes)
+        {
+            try
+            {
+                var parentField = typeof(EditorWindow).GetField("m_Parent", BindingFlags.Instance | BindingFlags.NonPublic);
+                var parent = parentField != null ? parentField.GetValue(window) : null;
+                if (parent == null)
+                {
+                    notes.Add("borderTop: no m_Parent");
+                    return 0f;
+                }
+
+                var border = ReadMemberByName(parent, "borderSize") as RectOffset;
+                if (border == null)
+                {
+                    notes.Add("borderTop: host view has no borderSize");
+                    return 0f;
+                }
+
+                return border.top;
+            }
+            catch (Exception e)
+            {
+                notes.Add("borderTop failed: " + e.Message);
+                return 0f;
+            }
+        }
+
+        private static object FindLayoutCache(VisualElement container)
+        {
+            foreach (var field in container.GetType().GetFields(BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public))
+            {
+                if (field.Name == "m_Cache" || field.FieldType.Name.IndexOf("LayoutCache", StringComparison.Ordinal) >= 0)
+                {
+                    return field.GetValue(container);
+                }
+            }
+
+            return null;
+        }
+
+        private static void CountEntries(object entry, int depth, ref int count)
+        {
+            if (entry == null || depth > 32)
+            {
+                return;
+            }
+
+            count++;
+            var children = ReadMemberByName(entry, "entries") as IList;
+            if (children == null)
+            {
+                return;
+            }
+
+            foreach (var child in children)
+            {
+                CountEntries(child, depth + 1, ref count);
+            }
         }
 
         private static void WriteLayoutEntry(StringBuilder sb, object entry, int depth, ref int index)
@@ -880,28 +1103,14 @@ namespace ProjectMQaMcp.Editor
             }
         }
 
-        private static Rect ResolveLayoutRect(EditorWindow window, int wantedIndex)
+        private static Rect ResolveLayoutRect(EditorWindow window, int wantedIndex, out Vector2 offset)
         {
-            var container = FindImguiContainer(window, new List<string>());
-            if (container == null)
+            var notes = new List<string>();
+            object topLevel;
+            if (!TryGetBestLayout(window, notes, out topLevel, out offset))
             {
-                throw new InvalidOperationException("No IMGUIContainer found for this window; click by x/y instead.");
-            }
-
-            object cache = null;
-            foreach (var field in container.GetType().GetFields(BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public))
-            {
-                if (field.Name == "m_Cache" || field.FieldType.Name.IndexOf("LayoutCache", StringComparison.Ordinal) >= 0)
-                {
-                    cache = field.GetValue(container);
-                    break;
-                }
-            }
-
-            var topLevel = cache != null ? ReadMemberByName(cache, "topLevel") : null;
-            if (topLevel == null)
-            {
-                throw new InvalidOperationException("Layout cache unavailable; click by x/y instead.");
+                throw new InvalidOperationException(
+                    "No IMGUI layout available for this window; click by x/y instead. " + string.Join(" | ", notes));
             }
 
             var index = 0;
@@ -950,7 +1159,7 @@ namespace ProjectMQaMcp.Editor
             return false;
         }
 
-        private static VisualElement FindImguiContainer(EditorWindow window, List<string> notes)
+        private static List<VisualElement> FindImguiContainers(EditorWindow window, List<string> notes)
         {
             // Legacy OnGUI windows draw inside the HostView's container, not the window's own root,
             // so both roots have to be searched before concluding there is no IMGUI surface.
@@ -996,42 +1205,35 @@ namespace ProjectMQaMcp.Editor
                 notes.Add("m_Parent failed: " + e.Message);
             }
 
+            // Collect every candidate rather than stopping at the first: the caller decides which one
+            // really ran OnGUI by measuring their layout caches.
+            var found = new List<VisualElement>();
             foreach (var root in roots)
             {
-                var found = FindImguiContainerRecursive(root, 0);
-                if (found != null)
-                {
-                    notes.Add("imguiContainer=" + found.GetType().Name);
-                    return found;
-                }
+                CollectImguiContainers(root, 0, found);
             }
 
-            notes.Add("no IMGUIContainer in " + roots.Count + " root(s)");
-            return null;
+            notes.Add("imguiContainers=" + found.Count.ToString(CultureInfo.InvariantCulture) +
+                      " in " + roots.Count.ToString(CultureInfo.InvariantCulture) + " root(s)");
+            return found;
         }
 
-        private static VisualElement FindImguiContainerRecursive(VisualElement element, int depth)
+        private static void CollectImguiContainers(VisualElement element, int depth, List<VisualElement> into)
         {
             if (element == null || depth > 32)
             {
-                return null;
+                return;
             }
 
-            if (element is IMGUIContainer)
+            if (element is IMGUIContainer && !into.Contains(element))
             {
-                return element;
+                into.Add(element);
             }
 
             foreach (var child in element.Children())
             {
-                var found = FindImguiContainerRecursive(child, depth + 1);
-                if (found != null)
-                {
-                    return found;
-                }
+                CollectImguiContainers(child, depth + 1, into);
             }
-
-            return null;
         }
 
         private static string DumpVisualTree(EditorWindow window)

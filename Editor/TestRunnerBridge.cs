@@ -74,6 +74,39 @@ namespace ProjectMQaMcp.Editor
             return Path.Combine(ResultsDirectory(), runId + ".json");
         }
 
+        private static string TestListPath(string mode)
+        {
+            return Path.Combine(ResultsDirectory(), "testlist-" + mode + ".json");
+        }
+
+        /// <summary>Pulls one array out of the stored JSON without dragging in a JSON parser.</summary>
+        private static string ExtractJsonArray(string json, string key)
+        {
+            var needle = "\"" + key + "\":[";
+            var index = json.IndexOf(needle, StringComparison.Ordinal);
+            if (index < 0)
+            {
+                return "[]";
+            }
+
+            var start = index + needle.Length - 1;
+            var depth = 0;
+            for (var i = start; i < json.Length; i++)
+            {
+                if (json[i] == '[') depth++;
+                else if (json[i] == ']')
+                {
+                    depth--;
+                    if (depth == 0)
+                    {
+                        return json.Substring(start, i - start + 1);
+                    }
+                }
+            }
+
+            return "[]";
+        }
+
         private static void RunTests(CommandParameters p, CommandResponse response)
         {
 #if !PROJECTM_TEST_FRAMEWORK
@@ -162,25 +195,56 @@ namespace ProjectMQaMcp.Editor
                 ? TestMode.PlayMode
                 : TestMode.EditMode;
 
-            var api = ScriptableObject.CreateInstance<TestRunnerApi>();
-            var collected = new List<string>();
-            var done = false;
+            // RetrieveTestList builds the tree over later editor updates, so its callback cannot land
+            // inside this command's own turn. Kick off a refresh and serve the last completed list from
+            // disk: the first call reports "pending", the next one returns real names.
+            var cachePath = TestListPath(modeText);
+            var limit = p.maxEntries > 0 ? p.maxEntries : 2000;
 
-            api.RetrieveTestList(mode, root =>
+            try
             {
-                CollectTestNames(root, collected, p.maxEntries > 0 ? p.maxEntries : 2000);
-                done = true;
-            });
+                var api = ScriptableObject.CreateInstance<TestRunnerApi>();
+                api.RetrieveTestList(mode, root =>
+                {
+                    try
+                    {
+                        var collected = new List<string>();
+                        CollectTestNames(root, collected, limit);
+                        File.WriteAllText(cachePath,
+                            "{\"testMode\":\"" + EditorToolBridge.Esc(modeText) + "\"," +
+                            "\"builtAtUtc\":\"" + DateTime.UtcNow.ToString("o", CultureInfo.InvariantCulture) + "\"," +
+                            "\"count\":" + collected.Count.ToString(CultureInfo.InvariantCulture) + "," +
+                            "\"tests\":[" + string.Join(",", collected.ToArray()) + "]}");
+                    }
+                    catch (Exception e)
+                    {
+                        UnityEngine.Debug.LogError($"{LogPrefix} failed to write test list: {e}");
+                    }
+                });
+            }
+            catch (Exception e)
+            {
+                UnityEngine.Debug.LogWarning($"{LogPrefix} RetrieveTestList failed: {e.Message}");
+            }
 
-            // RetrieveTestList answers synchronously when the test tree is already built; if it does not,
-            // say so plainly rather than reporting an empty list as "no tests".
             response.AddOutput("testMode", modeText);
-            response.AddOutput("resolved", done ? "true" : "false");
-            response.AddOutput("count", collected.Count.ToString(CultureInfo.InvariantCulture));
-            response.AddOutput("tests", "[" + string.Join(",", collected.ToArray()) + "]");
-            if (!done)
+            response.AddOutput("cachePath", cachePath);
+
+            if (File.Exists(cachePath))
             {
-                response.AddOutput("note", "Test list was still building; call list_tests again.");
+                var json = File.ReadAllText(cachePath);
+                response.AddOutput("resolved", "true");
+                response.AddOutput("count", ExtractJsonValue(json, "count"));
+                response.AddOutput("builtAtUtc", ExtractJsonValue(json, "builtAtUtc"));
+                response.AddOutput("tests", ExtractJsonArray(json, "tests"));
+                response.AddOutput("note", "Served from the last completed scan; a refresh was started for the next call.");
+            }
+            else
+            {
+                response.AddOutput("resolved", "false");
+                response.AddOutput("count", "0");
+                response.AddOutput("tests", "[]");
+                response.AddOutput("note", "Test list is being built; call list_tests again in a few seconds.");
             }
 #endif
         }
