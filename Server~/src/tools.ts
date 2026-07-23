@@ -9,6 +9,7 @@ import { launchUnity, runUnityTests } from './unityCli.js';
 import { fileSize, pathExists, readTail } from './utils/files.js';
 import { summarizeEditorLog } from './utils/editorLog.js';
 import { findStaleCandidates, killProcess, listUnityRelatedProcesses } from './processes.js';
+import { registerEditorTools } from './editorTools.js';
 
 const baseConfigShape = {
   unityPath: z.string().optional(),
@@ -89,6 +90,10 @@ export function registerTools(server: McpServer): void {
     kill: z.boolean().optional(),
     includeUnity: z.boolean().optional(),
   }, async (params) => toToolResult(await unityKillStale(params)));
+
+  // Editor-tool automation and the in-editor test runner: the tools above drive the running game,
+  // these drive the editor itself.
+  registerEditorTools(server);
 }
 
 async function unityStatus(params: any): Promise<unknown> {

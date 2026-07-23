@@ -153,6 +153,18 @@ namespace ProjectMQaMcp.Editor
                     ClickNguiObject(parameters, response);
                     break;
                 default:
+                    // Editor-tool and test-runner commands live in their own files; the runtime NGUI
+                    // commands above stay untouched so existing callers keep working unchanged.
+                    if (EditorToolBridge.TryExecute(request.command, parameters, response))
+                    {
+                        break;
+                    }
+
+                    if (TestRunnerBridge.TryExecute(request.command, parameters, response))
+                    {
+                        break;
+                    }
+
                     throw new NotSupportedException($"Unsupported command: {request.command}");
             }
         }
@@ -163,6 +175,27 @@ namespace ProjectMQaMcp.Editor
             response.AddOutput("unityVersion", Application.unityVersion);
             response.AddOutput("isBatchMode", Application.isBatchMode.ToString());
             response.AddOutput("activeScene", EditorSceneManager.GetActiveScene().path);
+
+            // bridgeVersion is how a caller tells whether the package pin it just changed actually took
+            // effect: manifest.json can say one commit while UPM is still running an older checkout.
+            response.AddOutput("bridgeVersion", EditorToolBridge.BridgeVersion);
+            response.AddOutput("isPlaying", EditorApplication.isPlaying.ToString());
+            response.AddOutput("isCompiling", EditorApplication.isCompiling.ToString());
+            response.AddOutput("commands", string.Join(",", SupportedCommands()));
+        }
+
+        private static IEnumerable<string> SupportedCommands()
+        {
+            var builtIn = new[]
+            {
+                "ping", "editor_status", "capture_screenshot", "capture_game_view",
+                "start_frame_capture", "stop_frame_capture", "open_scene", "load_prefab",
+                "find_ngui_object", "click_ngui_object",
+            };
+
+            return builtIn
+                .Concat(EditorToolBridge.SupportedCommands)
+                .Concat(TestRunnerBridge.SupportedCommands);
         }
 
         private static void CaptureScreenshot(CommandParameters parameters, CommandResponse response)
@@ -477,7 +510,7 @@ namespace ProjectMQaMcp.Editor
             return value;
         }
 
-        private static string GetCommandRoot()
+        internal static string GetCommandRoot()
         {
             var fromEnv = Environment.GetEnvironmentVariable("PROJECTM_COMMAND_ROOT");
             if (!string.IsNullOrEmpty(fromEnv))
@@ -544,6 +577,49 @@ namespace ProjectMQaMcp.Editor
         public int captureEveryNthUpdate;
         public int maxFrames;
         public double maxDurationSeconds;
+
+        // --- editor tool (EditorWindow) automation ---
+        // JsonUtility only fills flat public fields, so every parameter the editor commands accept has to
+        // be declared here rather than passed as a free-form dictionary.
+        public string windowType;
+        public string windowTitle;
+        public int instanceId;
+        public string menuPath;
+        public bool utility;
+        public bool noFocus;
+        public bool publicOnly;
+        public int maxDepth;
+
+        public string fieldPath;
+        public string fieldValue;
+        public string methodName;
+        public string methodArgs;
+
+        public string targetMode;
+        public int entryIndex;
+        public float x;
+        public float y;
+        public int button;
+        public int clickCount;
+        public string modifiers;
+        public string keyCode;
+        public string text;
+
+        public string filter;
+        public int maxEntries;
+        public bool noFlipY;
+
+        public string prefKey;
+        public string prefStore;
+        public string prefType;
+        public string playModeAction;
+
+        // --- test runner ---
+        public string testMode;
+        public string testFilter;
+        public string assemblyNames;
+        public string categoryNames;
+        public string runId;
     }
 
     [Serializable]

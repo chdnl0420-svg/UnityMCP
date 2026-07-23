@@ -1,9 +1,9 @@
 {
   "name": "com.nx3games.unity-mcp",
   "displayName": "ProjectM QA MCP",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "unity": "2022.3",
-  "description": "ProjectM-focused Unity QA MCP package with a file-based editor command bridge and bundled Node MCP server.",
+  "description": "ProjectM-focused Unity QA MCP package: file-based editor command bridge (runtime NGUI + editor-tool automation + in-editor test runner) with a bundled Node MCP server.",
   "author": {
     "name": "NX3GAMES"
   },
@@ -11,7 +11,8 @@
   "type": "library",
   "hideInEditor": false,
   "dependencies": {
-    "com.unity.nuget.newtonsoft-json": "3.2.1"
+    "com.unity.nuget.newtonsoft-json": "3.2.1",
+    "com.unity.test-framework": "1.1.33"
   },
   "keywords": [
     "mcp",
