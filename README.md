@@ -61,13 +61,32 @@ The generated MCP server entrypoint is:
 Server~/build/index.js
 ```
 
+## Editor-tool automation and in-editor tests
+
+Editor tools (`EditorWindow`) cannot be driven by the runtime NGUI commands: those go through
+`NguiRaycast` and `UICamera.Notify`, a path an editor window never takes, and IMGUI keeps no retained
+widget tree to walk instead.
+
+`unity_editor_*` tools cover that: open a window by type or menu path, dump its instance fields, its
+callable methods and its IMGUI layout rects, set fields by dotted/indexed path with a before/after
+readback, inject real clicks and keystrokes, run menu items, read the Console, and read or write
+EditorPrefs/PlayerPrefs.
+
+`unity_run_tests_in_editor`, `unity_get_test_results` and `unity_list_tests` run Unity Test Framework
+tests inside the already-open editor via `TestRunnerApi`. The older CLI test tools spawn a second Unity
+in batch mode, which cannot work while an editor holds the project lock.
+
+See `Documentation~/projectm-qa-mcp.md` for the mechanisms, the coordinate-space gotchas, and the
+current limitation on window pixel capture.
+
 ## Tool Success Criteria
 
 `unity_status` must return real JSON data, not just a connection signal.
 Editor commands must write response JSON with `success`, `command`,
 `elapsedMs`, `logs`, `outputs`, and `error`.
 Test tools parse Unity Test Framework XML and expose failure counts.
-Screenshot tools verify that a PNG exists and has non-zero size.
+Screenshot tools verify that a PNG exists and has non-zero size, and that its pixels are not a single
+flat colour — a blank capture is reported as a failure rather than handed back as an image.
 
 ## Frame-sequence recording (fast motion)
 

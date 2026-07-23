@@ -608,6 +608,8 @@ namespace ProjectMQaMcp.Editor
         public string filter;
         public int maxEntries;
         public bool noFlipY;
+        public float originX;
+        public float originY;
 
         public string prefKey;
         public string prefStore;

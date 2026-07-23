@@ -75,16 +75,34 @@ Commands:
 | `editor_prefs_get` / `editor_prefs_set` | EditorPrefs and PlayerPrefs |
 | `editor_play_mode` / `exit_play_mode` | Read or change play mode |
 
-### Two gotchas worth knowing
+### Three gotchas worth knowing
 
 **Pick the right IMGUIContainer.** A docked window's host view owns several — the tab strip and the
 rest of the dock chrome each draw through their own. The first one found depth-first is usually not
 the window's, and its layout cache looks nearly empty. The bridge measures every candidate and takes
 the one with the most entries.
 
-**Mind the coordinate spaces.** Layout rects are local to the container, while `SendEvent` delivers
-into the host view's space, which also contains the tab strip. Clicks must be offset by the
+**Mind the coordinate spaces for clicks.** Layout rects are local to the container, while `SendEvent`
+delivers into the host view's space, which also contains the tab strip. Clicks must be offset by the
 container's `worldBound`, or they land high by the height of the tab strip.
+
+**Screenshots are a known open issue.** `editor_window_screenshot` is wired up but does not reliably
+return pixels, so treat it as unverified and read window state with `editor_window_dump` instead.
+
+What is established: `ReadScreenPixel` reads bottom-left **physical pixels** while the editor reports
+rects top-left in **points**, so the rect is flipped and scaled by `EditorGUIUtility.pixelsPerPoint`
+(1.25 on a 1920x1080 display at 125% Windows scaling). It reads the **main editor window's**
+framebuffer, not the desktop — a window in its own floating container is not in those pixels at all,
+and the command refuses rather than writing a blank PNG. Beyond that, calls made from the bridge's
+`EditorApplication.update` turn come back a single flat colour even for a docked window with the
+editor in the foreground, which points at needing a real GUI repaint context; deferring the capture
+into one (the way test runs defer to callbacks) is the likely fix and is not implemented.
+
+Because a blank PNG looks exactly like a real one, the command reports `uniformColor`, logs a warning,
+and the MCP tool returns `success: false` when the capture is flat. Every input to the origin
+calculation comes back too (`screenResolution`, `pixelsPerPoint`, `containerRect`, `mainWindowRect`,
+`windowRect`, `hostRect`, `inMainWindow`, `screenOrigin`), and `originX`/`originY` override the
+computed origin, so the next attempt can be driven from numbers rather than guesswork.
 
 ## Test-runner commands
 

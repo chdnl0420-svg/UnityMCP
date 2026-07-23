@@ -21542,19 +21542,25 @@ function registerEditorTools(server2) {
       ...commonShape,
       ...windowShape,
       outputPath: external_exports.string().optional(),
-      noFlipY: external_exports.boolean().optional().describe("Skip the bottom-left screen-space y flip. Try this if the capture looks vertically offset.")
+      noFlipY: external_exports.boolean().optional().describe("Skip the bottom-left screen-space y flip. Try this if the capture looks vertically offset."),
+      originX: external_exports.number().optional().describe("Override the capture origin x, in points. For diagnosing a misplaced capture."),
+      originY: external_exports.number().optional().describe("Override the capture origin y, in bottom-left points. For diagnosing a misplaced capture.")
     },
     async (params) => {
       const config2 = resolveProjectConfig(params);
       const outputPath = params.outputPath || join4(config2.commandRoot, "screenshots", `editor-window-${Date.now()}.png`);
       const result = await runBridge(params, "editor_window_screenshot", {
         outputPath,
-        noFlipY: params.noFlipY ?? false
+        noFlipY: params.noFlipY ?? false,
+        originX: params.originX ?? 0,
+        originY: params.originY ?? 0
       });
       const bytes = await fileSize(outputPath);
+      const blank = result.outputs?.uniformColor === "true";
       return toToolResult({
         ...result,
-        success: result.success && bytes > 0,
+        success: result.success && bytes > 0 && !blank,
+        note: blank ? "Capture came back a single flat colour. ReadScreenPixel reads the editor framebuffer, so this happens when the window is not actually rendered on screen. Read window state with unity_editor_window_dump instead." : void 0,
         outputs: { ...result.outputs, outputPath, pngExists: await pathExists(outputPath), pngBytes: bytes }
       });
     }

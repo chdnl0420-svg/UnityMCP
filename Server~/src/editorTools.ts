@@ -93,6 +93,8 @@ export function registerEditorTools(server: McpServer): void {
       ...windowShape,
       outputPath: z.string().optional(),
       noFlipY: z.boolean().optional().describe('Skip the bottom-left screen-space y flip. Try this if the capture looks vertically offset.'),
+      originX: z.number().optional().describe('Override the capture origin x, in points. For diagnosing a misplaced capture.'),
+      originY: z.number().optional().describe('Override the capture origin y, in bottom-left points. For diagnosing a misplaced capture.'),
     },
     async (params) => {
       const config = resolveProjectConfig(params);
@@ -101,11 +103,19 @@ export function registerEditorTools(server: McpServer): void {
       const result = await runBridge(params, 'editor_window_screenshot', {
         outputPath,
         noFlipY: params.noFlipY ?? false,
+        originX: params.originX ?? 0,
+        originY: params.originY ?? 0,
       });
       const bytes = await fileSize(outputPath);
+      // A flat single-colour capture is a failure even though a PNG was written: reporting it as
+      // success would hand back a blank image that looks like a real screenshot.
+      const blank = result.outputs?.uniformColor === 'true';
       return toToolResult({
         ...result,
-        success: result.success && bytes > 0,
+        success: result.success && bytes > 0 && !blank,
+        note: blank
+          ? 'Capture came back a single flat colour. ReadScreenPixel reads the editor framebuffer, so this happens when the window is not actually rendered on screen. Read window state with unity_editor_window_dump instead.'
+          : undefined,
         outputs: { ...result.outputs, outputPath, pngExists: await pathExists(outputPath), pngBytes: bytes },
       });
     });

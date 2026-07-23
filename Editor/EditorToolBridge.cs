@@ -33,7 +33,7 @@ namespace ProjectMQaMcp.Editor
     /// </summary>
     internal static class EditorToolBridge
     {
-        internal const string BridgeVersion = "0.2.7";
+        internal const string BridgeVersion = "0.3.0";
 
         private const int DefaultMaxDepth = 1;
         private const int ValuePreviewLimit = 400;
@@ -1005,6 +1005,102 @@ namespace ProjectMQaMcp.Editor
         /// A dock area reports its tab strip as the top border; floating windows report zero. Used as a
         /// fallback when the layout roots are not available to measure the difference directly.
         /// </summary>
+        /// <summary>
+        /// Desktop rect of the OS window that hosts this EditorWindow. A docked window's own position
+        /// is relative to this, so both are needed to place a screen-space capture.
+        /// </summary>
+        private static Rect ContainerRect(EditorWindow window)
+        {
+            try
+            {
+                var parentField = typeof(EditorWindow).GetField("m_Parent", BindingFlags.Instance | BindingFlags.NonPublic);
+                var parent = parentField != null ? parentField.GetValue(window) : null;
+                var container = parent != null ? ReadMemberByName(parent, "window") : null;
+                var position = container != null ? ReadMemberByName(container, "position") : null;
+                if (position is Rect)
+                {
+                    return (Rect)position;
+                }
+            }
+            catch (Exception)
+            {
+                // Falls back to the origin, which is correct for a maximized editor.
+            }
+
+            return new Rect(0f, 0f, 0f, 0f);
+        }
+
+        /// <summary>
+        /// The host view's rect in desktop points, which is what a screen capture needs. Preferred over
+        /// the window's own position because it is the view that actually owns the pixels on screen.
+        /// </summary>
+        private static Rect HostScreenRect(EditorWindow window)
+        {
+            try
+            {
+                var parentField = typeof(EditorWindow).GetField("m_Parent", BindingFlags.Instance | BindingFlags.NonPublic);
+                var parent = parentField != null ? parentField.GetValue(window) : null;
+                var screen = parent != null ? ReadMemberByName(parent, "screenPosition") : null;
+                if (screen is Rect)
+                {
+                    return (Rect)screen;
+                }
+            }
+            catch (Exception)
+            {
+                // Caller falls back to EditorWindow.position.
+            }
+
+            return new Rect(0f, 0f, 0f, 0f);
+        }
+
+        private static object ContainerOf(EditorWindow window)
+        {
+            try
+            {
+                var parentField = typeof(EditorWindow).GetField("m_Parent", BindingFlags.Instance | BindingFlags.NonPublic);
+                var parent = parentField != null ? parentField.GetValue(window) : null;
+                return parent != null ? ReadMemberByName(parent, "window") : null;
+            }
+            catch (Exception)
+            {
+                return null;
+            }
+        }
+
+        /// <summary>The container window holding the main editor, which is the one screen reads see.</summary>
+        private static object MainContainer()
+        {
+            try
+            {
+                var type = typeof(EditorWindow).Assembly.GetType("UnityEditor.ContainerWindow");
+                if (type == null)
+                {
+                    return null;
+                }
+
+                foreach (var candidate in Resources.FindObjectsOfTypeAll(type))
+                {
+                    var showMode = ReadMemberByName(candidate, "showMode");
+                    if (showMode == null)
+                    {
+                        continue;
+                    }
+
+                    if (string.Equals(Enum.GetName(showMode.GetType(), showMode), "MainWindow", StringComparison.Ordinal))
+                    {
+                        return candidate;
+                    }
+                }
+            }
+            catch (Exception)
+            {
+                // Caller treats a missing main window as "not capturable".
+            }
+
+            return null;
+        }
+
         private static float BorderTop(EditorWindow window, List<string> notes)
         {
             try
@@ -1315,16 +1411,85 @@ namespace ProjectMQaMcp.Editor
                 throw new MissingMethodException("InternalEditorUtility.ReadScreenPixel not available on this Unity version.");
             }
 
-            // ReadScreenPixel works in bottom-left screen space while EditorWindow.position is top-left,
-            // so the y origin has to be flipped against the display that holds the window.
-            var displayHeight = Screen.currentResolution.height;
-            var originY = p.noFlipY ? rect.y : displayHeight - (rect.y + rect.height);
-            var origin = new Vector2(rect.x, originY);
+            // Three coordinate spaces meet here and none of them can be assumed:
+            //   - EditorWindow.position is relative to its container window, not the desktop, so a
+            //     docked window's y can exceed the screen height on its own.
+            //   - ReadScreenPixel works bottom-left, while every Unity editor rect is top-left.
+            //   - The editor draws in points; ReadScreenPixel reads physical pixels.
+            // So the desktop rect is rebuilt from the container, flipped, and scaled by pixelsPerPoint,
+            // and every input is reported below so a wrong capture can be diagnosed from the response
+            // instead of by staring at the image.
+            // Measured on 2022.3: the host view's screenPosition and the window's own position both
+            // come back in desktop points already, so they are used as-is. The container rect is
+            // reported alongside for diagnosis but must not be added in - doing so doubles the origin.
+            var containerRect = ContainerRect(window);
+            var hostRect = HostScreenRect(window);
+            var source = hostRect.width > 0f ? hostRect : rect;
+
+            var targetContainer = ContainerOf(window);
+            var mainContainer = MainContainer();
+            var mainRectValue = mainContainer != null ? ReadMemberByName(mainContainer, "position") : null;
+            var mainRect = mainRectValue is Rect ? (Rect)mainRectValue : new Rect();
+            var inMainWindow = targetContainer != null && mainContainer != null && ReferenceEquals(targetContainer, mainContainer);
+
+            var scale = EditorGUIUtility.pixelsPerPoint;
+            if (scale <= 0f) scale = 1f;
+
+            response.AddOutput("screenResolution", Screen.currentResolution.width + "x" + Screen.currentResolution.height);
+            response.AddOutput("pixelsPerPoint", F(scale));
+            response.AddOutput("containerRect", RectJson(containerRect));
+            response.AddOutput("mainWindowRect", RectJson(mainRect));
+            response.AddOutput("windowRect", RectJson(rect));
+            response.AddOutput("hostRect", RectJson(source));
+            response.AddOutput("inMainWindow", inMainWindow ? "true" : "false");
+
+            // ReadScreenPixel reads the *main editor window's* framebuffer, not the desktop. A window
+            // living in its own floating container simply is not in those pixels, and capturing anyway
+            // writes a plausible-looking but blank PNG. Refuse instead, and say what to do about it.
+            if (!inMainWindow && p.originY == 0f)
+            {
+                throw new InvalidOperationException(
+                    "This window is in a floating container, which ReadScreenPixel cannot see - it only reads the " +
+                    "main editor window's framebuffer. Dock the window into the main editor window and retry, or use " +
+                    "editor_window_dump to read its state instead.");
+            }
+
+            // Coordinates are relative to the main window, bottom-left, in physical pixels: the editor
+            // reports rects top-left in points, so flip against the main window and scale.
+            var localX = source.x - mainRect.x;
+            var localY = source.y - mainRect.y;
+            var flippedY = mainRect.height - (localY + source.height);
+
+            var originPoint = new Vector2(
+                p.originX != 0f ? p.originX : localX,
+                p.originY != 0f ? p.originY : (p.noFlipY ? localY : flippedY));
+
+            var origin = originPoint * scale;
+            width = Mathf.Max(1, Mathf.RoundToInt(source.width * scale));
+            height = Mathf.Max(1, Mathf.RoundToInt(source.height * scale));
 
             var pixels = readScreenPixel.Invoke(null, new object[] { origin, width, height }) as Color[];
             if (pixels == null || pixels.Length == 0)
             {
                 throw new InvalidOperationException("ReadScreenPixel returned no pixels (window off-screen or minimized?).");
+            }
+
+            // A flat single-colour result means the region held nothing, which is worth saying out loud:
+            // the file would otherwise look like a successful capture.
+            var uniform = true;
+            for (var i = 1; i < pixels.Length && uniform; i++)
+            {
+                if (pixels[i] != pixels[0])
+                {
+                    uniform = false;
+                }
+            }
+
+            response.AddOutput("uniformColor", uniform ? "true" : "false");
+            if (uniform)
+            {
+                response.logs.Add("[ProjectMQaMcp] capture is a single flat colour - the window may be occluded, " +
+                                  "minimized, or outside the main editor window.");
             }
 
             var texture = new Texture2D(width, height, TextureFormat.RGB24, false);
