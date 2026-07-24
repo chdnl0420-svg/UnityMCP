@@ -21102,7 +21102,7 @@ var StdioServerTransport = class {
 
 // src/tools.ts
 import { readFile as readFile3 } from "node:fs/promises";
-import { join as join4 } from "node:path";
+import { join as join5 } from "node:path";
 import { createConnection } from "node:net";
 
 // src/config.ts
@@ -21452,54 +21452,429 @@ async function killProcess(pid) {
   process.kill(pid, "SIGTERM");
 }
 
-// src/tools.ts
+// src/editorTools.ts
+import { join as join4 } from "node:path";
 var baseConfigShape = {
   unityPath: external_exports.string().optional(),
   projectPath: external_exports.string().optional(),
   commandRoot: external_exports.string().optional()
 };
+var windowShape = {
+  windowType: external_exports.string().optional().describe('EditorWindow type name, e.g. "UILayoutCheckerWindow" or a full namespace-qualified name.'),
+  windowTitle: external_exports.string().optional().describe("Window tab title, used when the type name is unknown."),
+  instanceId: external_exports.number().int().optional().describe("Exact window instance id from unity_editor_window_list.")
+};
 var timeoutSchema = external_exports.number().int().positive().max(60 * 60 * 1e3).optional();
+var commonShape = {
+  ...baseConfigShape,
+  timeoutMs: timeoutSchema,
+  runOnce: external_exports.boolean().optional()
+};
+var JSON_OUTPUT_KEYS = /* @__PURE__ */ new Set([
+  "windows",
+  "window",
+  "fields",
+  "methods",
+  "layout",
+  "visualTree",
+  "menuItems",
+  "entries",
+  "tests",
+  "result",
+  "entryRect",
+  "focusedWindow"
+]);
+function registerEditorTools(server2) {
+  server2.tool(
+    "unity_editor_window_list",
+    "Lists every open Unity EditorWindow with its type, title, instance id, focus state and screen rect. Start here when you do not know a tool window's exact type name.",
+    { ...commonShape },
+    async (params) => toToolResult(await runBridge(params, "editor_window_list", {}))
+  );
+  server2.tool(
+    "unity_editor_window_open",
+    "Opens a Unity editor tool window, either by EditorWindow type name or by running its menu item, and returns the opened window. Prefer menuPath when the tool does setup work in its menu handler.",
+    {
+      ...commonShape,
+      ...windowShape,
+      menuPath: external_exports.string().optional().describe('Menu item that opens the window, e.g. "Tools/UI Layout Checker".'),
+      utility: external_exports.boolean().optional().describe("Open as a floating utility window instead of a dockable one."),
+      noFocus: external_exports.boolean().optional().describe("Open without stealing focus.")
+    },
+    async (params) => toToolResult(await runBridge(params, "editor_window_open", {
+      windowType: params.windowType,
+      windowTitle: params.windowTitle,
+      menuPath: params.menuPath,
+      utility: params.utility ?? false,
+      noFocus: params.noFocus ?? false
+    }))
+  );
+  server2.tool(
+    "unity_editor_window_close",
+    "Closes an open Unity editor tool window.",
+    { ...commonShape, ...windowShape },
+    async (params) => toToolResult(await runBridge(params, "editor_window_close", {}))
+  );
+  server2.tool(
+    "unity_editor_window_focus",
+    "Focuses an editor tool window and forces a repaint, which also refreshes its IMGUI layout rects.",
+    { ...commonShape, ...windowShape },
+    async (params) => toToolResult(await runBridge(params, "editor_window_focus", {}))
+  );
+  server2.tool(
+    "unity_editor_window_dump",
+    "Dumps everything needed to drive an editor tool window: its instance fields with current values (this is where in-house tools keep their state), its callable methods, its IMGUI layout rects with style names for clicking, and its UIElements tree. Call this before set_field or click.",
+    {
+      ...commonShape,
+      ...windowShape,
+      maxDepth: external_exports.number().int().min(0).max(4).optional().describe("How deep to expand nested field values (default 1)."),
+      publicOnly: external_exports.boolean().optional().describe("Skip private fields. Off by default, because tool state is usually private.")
+    },
+    async (params) => toToolResult(await runBridge(params, "editor_window_dump", {
+      maxDepth: params.maxDepth ?? 1,
+      publicOnly: params.publicOnly ?? false
+    }))
+  );
+  server2.tool(
+    "unity_editor_window_screenshot",
+    "Captures a PNG of an editor tool window as it appears on screen, and verifies the file is non-empty. The window must be visible and not minimized.",
+    {
+      ...commonShape,
+      ...windowShape,
+      outputPath: external_exports.string().optional(),
+      noFlipY: external_exports.boolean().optional().describe("Skip the bottom-left screen-space y flip. Try this if the capture looks vertically offset."),
+      originX: external_exports.number().optional().describe("Override the capture origin x, in points. For diagnosing a misplaced capture."),
+      originY: external_exports.number().optional().describe("Override the capture origin y, in bottom-left points. For diagnosing a misplaced capture.")
+    },
+    async (params) => {
+      const config2 = resolveProjectConfig(params);
+      const outputPath = params.outputPath || join4(config2.commandRoot, "screenshots", `editor-window-${Date.now()}.png`);
+      const result = await runBridge(params, "editor_window_screenshot", {
+        outputPath,
+        noFlipY: params.noFlipY ?? false,
+        originX: params.originX ?? 0,
+        originY: params.originY ?? 0
+      });
+      const bytes = await fileSize(outputPath);
+      const blank = result.outputs?.uniformColor === "true";
+      return toToolResult({
+        ...result,
+        success: result.success && bytes > 0 && !blank,
+        note: blank ? "Capture came back a single flat colour. ReadScreenPixel reads the editor framebuffer, so this happens when the window is not actually rendered on screen. Read window state with unity_editor_window_dump instead." : void 0,
+        outputs: { ...result.outputs, outputPath, pngExists: await pathExists(outputPath), pngBytes: bytes }
+      });
+    }
+  );
+  server2.tool(
+    "unity_editor_get_field",
+    'Reads one field or property on an editor tool window by path, e.g. "_inputName" or "_resolutions[0].width".',
+    {
+      ...commonShape,
+      ...windowShape,
+      fieldPath: external_exports.string().describe('Dotted/indexed path, e.g. "_resolutions[2].scale".'),
+      maxDepth: external_exports.number().int().min(0).max(4).optional()
+    },
+    async (params) => toToolResult(await runBridge(params, "editor_get_field", {
+      fieldPath: params.fieldPath,
+      maxDepth: params.maxDepth ?? 2
+    }))
+  );
+  server2.tool(
+    "unity_editor_set_field",
+    "Sets a field or property on an editor tool window and returns its before/after values as evidence the write landed. This is the most reliable way to drive an IMGUI tool, because tools read their state from these fields during OnGUI. Values are given as text and converted to the target type (numbers, bools, enums, Vector2/3/4, Color, or JSON for plain objects).",
+    {
+      ...commonShape,
+      ...windowShape,
+      fieldPath: external_exports.string().describe('Dotted/indexed path, e.g. "_inputW" or "_resolutions[0].name".'),
+      fieldValue: external_exports.string().describe("New value as text. Enums accept the name or the number.")
+    },
+    async (params) => toToolResult(await runBridge(params, "editor_set_field", {
+      fieldPath: params.fieldPath,
+      fieldValue: params.fieldValue
+    }))
+  );
+  server2.tool(
+    "unity_editor_invoke_method",
+    "Invokes a method on an editor tool window instance. Use this only when a behaviour cannot be reached by clicking, since it bypasses the tool's own GUI path.",
+    {
+      ...commonShape,
+      ...windowShape,
+      methodName: external_exports.string(),
+      methodArgs: external_exports.array(external_exports.string()).optional().describe("Arguments as text, converted to the parameter types.")
+    },
+    async (params) => toToolResult(await runBridge(params, "editor_invoke_method", {
+      methodName: params.methodName,
+      // Unit Separator keeps arguments intact when one of them contains a comma.
+      methodArgs: (params.methodArgs ?? []).join("")
+    }))
+  );
+  server2.tool(
+    "unity_editor_click",
+    "Clicks inside an editor tool window by injecting a real IMGUI MouseDown/MouseUp pair, so the tool's own button callback runs. Target either a point (x, y in window-local coordinates) or a layout entry index from unity_editor_window_dump.",
+    {
+      ...commonShape,
+      ...windowShape,
+      targetMode: external_exports.enum(["point", "entry"]).optional().describe(`"point" (default) uses x/y; "entry" uses entryIndex from the dump's layout array.`),
+      x: external_exports.number().optional(),
+      y: external_exports.number().optional(),
+      entryIndex: external_exports.number().int().min(0).optional().describe('Index "i" of a layout entry from unity_editor_window_dump.'),
+      button: external_exports.number().int().min(0).max(2).optional(),
+      clickCount: external_exports.number().int().min(1).max(3).optional(),
+      modifiers: external_exports.string().optional().describe("Comma separated: shift, control, alt, command.")
+    },
+    async (params) => toToolResult(await runBridge(params, "editor_click", {
+      targetMode: params.targetMode ?? "point",
+      x: params.x ?? 0,
+      y: params.y ?? 0,
+      entryIndex: params.entryIndex ?? 0,
+      button: params.button ?? 0,
+      clickCount: params.clickCount ?? 1,
+      modifiers: params.modifiers
+    }))
+  );
+  server2.tool(
+    "unity_editor_key",
+    "Sends keyboard events to an editor tool window: text is typed character by character, and keyCode presses a named key such as Return or Escape. For filling text fields, unity_editor_set_field is more reliable because it does not depend on GUI focus.",
+    {
+      ...commonShape,
+      ...windowShape,
+      text: external_exports.string().optional(),
+      keyCode: external_exports.string().optional().describe("UnityEngine.KeyCode name, e.g. Return, Escape, Tab, A."),
+      modifiers: external_exports.string().optional().describe("Comma separated: shift, control, alt, command.")
+    },
+    async (params) => toToolResult(await runBridge(params, "editor_key", {
+      text: params.text,
+      keyCode: params.keyCode,
+      modifiers: params.modifiers
+    }))
+  );
+  server2.tool(
+    "unity_editor_menu_execute",
+    'Runs a Unity main-menu item by its exact path, e.g. "Edit/Delete PlayerPrefs". Fails loudly when the path does not exist rather than silently doing nothing.',
+    { ...commonShape, menuPath: external_exports.string() },
+    async (params) => toToolResult(await runBridge(params, "editor_menu_execute", { menuPath: params.menuPath }))
+  );
+  server2.tool(
+    "unity_editor_menu_list",
+    "Lists registered [MenuItem] paths with the type and method behind each one, optionally filtered by substring. Use it to find the exact menu path for a tool.",
+    { ...commonShape, filter: external_exports.string().optional() },
+    async (params) => toToolResult(await runBridge(params, "editor_menu_list", { filter: params.filter }))
+  );
+  server2.tool(
+    "unity_editor_console_read",
+    "Reads Unity Console entries newest first, with error/warning/log counts. This is the main way to confirm that an editor tool action actually ran or that it logged an error.",
+    {
+      ...commonShape,
+      maxEntries: external_exports.number().int().positive().max(1e3).optional(),
+      filter: external_exports.string().optional().describe("Only return entries containing this text.")
+    },
+    async (params) => toToolResult(await runBridge(params, "editor_console_read", {
+      maxEntries: params.maxEntries ?? 100,
+      filter: params.filter
+    }))
+  );
+  server2.tool(
+    "unity_editor_console_clear",
+    "Clears the Unity Console. Call this before an action so the entries that follow belong only to that action.",
+    { ...commonShape },
+    async (params) => toToolResult(await runBridge(params, "editor_console_clear", {}))
+  );
+  server2.tool(
+    "unity_editor_prefs_get",
+    "Reads an EditorPrefs or PlayerPrefs value. Many editor tools persist their state here, which makes it good independent evidence that an action took effect.",
+    {
+      ...commonShape,
+      prefKey: external_exports.string(),
+      prefStore: external_exports.enum(["editor", "player"]).optional(),
+      prefType: external_exports.enum(["string", "int", "float", "bool"]).optional()
+    },
+    async (params) => toToolResult(await runBridge(params, "editor_prefs_get", {
+      prefKey: params.prefKey,
+      prefStore: params.prefStore ?? "editor",
+      prefType: params.prefType ?? "string"
+    }))
+  );
+  server2.tool(
+    "unity_editor_prefs_set",
+    "Writes an EditorPrefs or PlayerPrefs value, for setting up a known starting state before exercising a tool.",
+    {
+      ...commonShape,
+      prefKey: external_exports.string(),
+      fieldValue: external_exports.string().describe("Value as text."),
+      prefStore: external_exports.enum(["editor", "player"]).optional(),
+      prefType: external_exports.enum(["string", "int", "float", "bool"]).optional()
+    },
+    async (params) => toToolResult(await runBridge(params, "editor_prefs_set", {
+      prefKey: params.prefKey,
+      fieldValue: params.fieldValue,
+      prefStore: params.prefStore ?? "editor",
+      prefType: params.prefType ?? "string"
+    }))
+  );
+  server2.tool(
+    "unity_editor_play_mode",
+    "Reads or changes play mode, and reports whether the editor is compiling. Unity defers recompilation while playing, so exit play mode when a newly added bridge command comes back as unsupported.",
+    {
+      ...commonShape,
+      playModeAction: external_exports.enum(["status", "enter", "exit", "toggle"]).optional()
+    },
+    async (params) => toToolResult(await runBridge(params, "editor_play_mode", {
+      playModeAction: params.playModeAction ?? "status"
+    }))
+  );
+  server2.tool(
+    "unity_run_tests_in_editor",
+    "Starts a Unity Test Framework run inside the already-open editor using TestRunnerApi and returns a runId immediately. Unlike the CLI test tools this does not need a second Unity process, so it works while the editor holds the project lock. Poll unity_get_test_results with the runId.",
+    {
+      ...commonShape,
+      testMode: external_exports.enum(["EditMode", "PlayMode"]).optional(),
+      testFilter: external_exports.string().optional().describe("Semicolon separated full test names."),
+      assemblyNames: external_exports.string().optional().describe("Semicolon separated test assembly names."),
+      categoryNames: external_exports.string().optional().describe("Semicolon separated categories.")
+    },
+    async (params) => toToolResult(await runBridge(params, "run_tests", {
+      testMode: params.testMode ?? "EditMode",
+      testFilter: params.testFilter,
+      assemblyNames: params.assemblyNames,
+      categoryNames: params.categoryNames
+    }))
+  );
+  server2.tool(
+    "unity_get_test_results",
+    "Reads the result of an in-editor test run: status, pass/fail/skip counts and per-test outcomes with failure messages. Results are stored on disk, so they survive the domain reload a test run can trigger.",
+    { ...commonShape, runId: external_exports.string().optional().describe("Defaults to the most recent run in this editor session.") },
+    async (params) => toToolResult(await runBridge(params, "get_test_results", { runId: params.runId }))
+  );
+  server2.tool(
+    "unity_list_tests",
+    "Lists the tests the editor knows about for a given mode, so a filter can be built without guessing names. The scan runs across later editor updates, so the first call may return resolved=false; call again to get the result.",
+    {
+      ...commonShape,
+      testMode: external_exports.enum(["EditMode", "PlayMode"]).optional(),
+      maxEntries: external_exports.number().int().positive().max(5e3).optional(),
+      refresh: external_exports.boolean().optional().describe("Rescan even when a cached list exists.")
+    },
+    async (params) => toToolResult(await runBridge(params, "list_tests", {
+      testMode: params.testMode ?? "EditMode",
+      maxEntries: params.maxEntries ?? 2e3,
+      refresh: params.refresh ?? false
+    }))
+  );
+}
+async function runBridge(params, command, extra) {
+  const config2 = resolveProjectConfig(params);
+  const response = await executeEditorCommand({
+    unityPath: config2.unityPath,
+    projectPath: config2.projectPath,
+    commandRoot: config2.commandRoot,
+    command,
+    parameters: {
+      windowType: params.windowType,
+      windowTitle: params.windowTitle,
+      instanceId: params.instanceId ?? 0,
+      ...stripUndefined(extra)
+    },
+    timeoutMs: params.timeoutMs ?? 2e4,
+    runOnce: params.runOnce ?? false
+  });
+  return { ...response, outputs: decodeOutputs(response) };
+}
+function stripUndefined(source) {
+  const result = {};
+  for (const [key, value] of Object.entries(source)) {
+    if (value !== void 0) {
+      result[key] = value;
+    }
+  }
+  return result;
+}
+function decodeOutputs(response) {
+  const outputs = response.outputs;
+  const flat = {};
+  if (Array.isArray(outputs)) {
+    for (const item of outputs) {
+      if (item && typeof item === "object" && "key" in item && "value" in item) {
+        const entry = item;
+        if (typeof entry.key === "string") {
+          flat[entry.key] = entry.value;
+        }
+      }
+    }
+  } else if (outputs && typeof outputs === "object") {
+    Object.assign(flat, outputs);
+  }
+  for (const [key, value] of Object.entries(flat)) {
+    if (typeof value !== "string") continue;
+    const trimmed = value.trim();
+    const looksStructured = trimmed.startsWith("[") || trimmed.startsWith("{");
+    if (!JSON_OUTPUT_KEYS.has(key) && !looksStructured) continue;
+    if (!looksStructured) continue;
+    try {
+      flat[key] = JSON.parse(trimmed);
+    } catch {
+    }
+  }
+  return flat;
+}
+function toToolResult(value) {
+  return {
+    content: [
+      {
+        type: "text",
+        text: JSON.stringify(value, null, 2)
+      }
+    ]
+  };
+}
+
+// src/tools.ts
+var baseConfigShape2 = {
+  unityPath: external_exports.string().optional(),
+  projectPath: external_exports.string().optional(),
+  commandRoot: external_exports.string().optional()
+};
+var timeoutSchema2 = external_exports.number().int().positive().max(60 * 60 * 1e3).optional();
 function registerTools(server2) {
   server2.tool("unity_status", "Checks Unity, ProjectM, command bridge, logs, port, and stale process status.", {
-    ...baseConfigShape
-  }, async (params) => toToolResult(await unityStatus(params)));
+    ...baseConfigShape2
+  }, async (params) => toToolResult2(await unityStatus(params)));
   server2.tool("unity_launch", "Launches Unity 2022.3.76f1 for ProjectM using normal user privileges.", {
-    ...baseConfigShape,
+    ...baseConfigShape2,
     extraArgs: external_exports.array(external_exports.string()).optional()
-  }, async (params) => toToolResult(await unityLaunch(params)));
+  }, async (params) => toToolResult2(await unityLaunch(params)));
   server2.tool("unity_run_editmode_tests", "Runs Unity Test Framework EditMode tests through Unity CLI and parses XML results.", {
-    ...baseConfigShape,
+    ...baseConfigShape2,
     testFilter: external_exports.string().optional(),
-    timeoutMs: timeoutSchema
-  }, async (params) => toToolResult(await unityRunTests({ ...params, mode: "EditMode" })));
+    timeoutMs: timeoutSchema2
+  }, async (params) => toToolResult2(await unityRunTests({ ...params, mode: "EditMode" })));
   server2.tool("unity_run_playmode_tests", "Runs Unity Test Framework PlayMode tests through Unity CLI and parses XML results.", {
-    ...baseConfigShape,
+    ...baseConfigShape2,
     testFilter: external_exports.string().optional(),
-    timeoutMs: timeoutSchema
-  }, async (params) => toToolResult(await unityRunTests({ ...params, mode: "PlayMode" })));
+    timeoutMs: timeoutSchema2
+  }, async (params) => toToolResult2(await unityRunTests({ ...params, mode: "PlayMode" })));
   server2.tool("unity_read_editor_log", "Reads Editor.log tail and summarizes recent warnings, errors, and bridge lines.", {
     logPath: external_exports.string().optional(),
     maxBytes: external_exports.number().int().positive().max(20 * 1024 * 1024).optional(),
     maxLines: external_exports.number().int().positive().max(2e3).optional()
-  }, async (params) => toToolResult(await unityReadEditorLog(params)));
+  }, async (params) => toToolResult2(await unityReadEditorLog(params)));
   server2.tool("unity_execute_editor_command", "Writes a request JSON file and waits for the Unity editor bridge response JSON.", {
-    ...baseConfigShape,
+    ...baseConfigShape2,
     command: external_exports.string(),
     parameters: external_exports.record(external_exports.unknown()).optional(),
-    timeoutMs: timeoutSchema,
+    timeoutMs: timeoutSchema2,
     runOnce: external_exports.boolean().optional()
-  }, async (params) => toToolResult(await unityExecuteEditorCommand(params)));
+  }, async (params) => toToolResult2(await unityExecuteEditorCommand(params)));
   server2.tool("unity_capture_screenshot", "Requests a Unity screenshot and verifies that the PNG exists and has non-zero size.", {
-    ...baseConfigShape,
+    ...baseConfigShape2,
     outputPath: external_exports.string().optional(),
     cameraName: external_exports.string().optional(),
     width: external_exports.number().int().positive().max(8192).optional(),
     height: external_exports.number().int().positive().max(8192).optional(),
-    timeoutMs: timeoutSchema,
+    timeoutMs: timeoutSchema2,
     runOnce: external_exports.boolean().optional()
-  }, async (params) => toToolResult(await unityCaptureScreenshot(params)));
+  }, async (params) => toToolResult2(await unityCaptureScreenshot(params)));
   server2.tool("unity_start_frame_capture", "Starts recording the Unity game view as a PNG frame sequence on every editor update, for fast motion a single screenshot round-trip misses. Returns immediately with the frames folder; run the fast action, then call unity_stop_frame_capture. Auto-stops at maxFrames/maxDurationSeconds. Use only when a single screenshot cannot catch the change.", {
-    ...baseConfigShape,
+    ...baseConfigShape2,
     framesDir: external_exports.string().optional(),
     cameraName: external_exports.string().optional(),
     width: external_exports.number().int().positive().max(8192).optional(),
@@ -21507,26 +21882,27 @@ function registerTools(server2) {
     captureEveryNthUpdate: external_exports.number().int().positive().max(60).optional(),
     maxFrames: external_exports.number().int().positive().max(3600).optional(),
     maxDurationSeconds: external_exports.number().positive().max(120).optional(),
-    timeoutMs: timeoutSchema,
+    timeoutMs: timeoutSchema2,
     runOnce: external_exports.boolean().optional()
-  }, async (params) => toToolResult(await unityStartFrameCapture(params)));
+  }, async (params) => toToolResult2(await unityStartFrameCapture(params)));
   server2.tool("unity_stop_frame_capture", "Stops the running game view frame-sequence recording and returns the frames folder, frame count, and fps. Read the PNG frame sequence in order to inspect the fast motion.", {
-    ...baseConfigShape,
+    ...baseConfigShape2,
     framesDir: external_exports.string().optional(),
-    timeoutMs: timeoutSchema,
+    timeoutMs: timeoutSchema2,
     runOnce: external_exports.boolean().optional()
-  }, async (params) => toToolResult(await unityStopFrameCapture(params)));
+  }, async (params) => toToolResult2(await unityStopFrameCapture(params)));
   server2.tool("unity_kill_stale", "Reports stale Unity/node/MCP processes and optionally kills only explicit stale candidates.", {
-    ...baseConfigShape,
+    ...baseConfigShape2,
     kill: external_exports.boolean().optional(),
     includeUnity: external_exports.boolean().optional()
-  }, async (params) => toToolResult(await unityKillStale(params)));
+  }, async (params) => toToolResult2(await unityKillStale(params)));
+  registerEditorTools(server2);
 }
 async function unityStatus(params) {
   const config2 = resolveProjectConfig(params);
   const processes = await listUnityRelatedProcesses();
   const staleCandidates = findStaleCandidates(processes, config2.projectPath);
-  const mcpSettingsPath = join4(config2.projectPath, "ProjectSettings", "McpUnitySettings.json");
+  const mcpSettingsPath = join5(config2.projectPath, "ProjectSettings", "McpUnitySettings.json");
   const mcpSettings = await readMcpSettings(mcpSettingsPath);
   const portOpen = mcpSettings?.Port ? await isPortOpen("127.0.0.1", mcpSettings.Port, 500) : void 0;
   const editorLogPath = defaultEditorLogPath();
@@ -21538,10 +21914,10 @@ async function unityStatus(params) {
     projectExists: await pathExists(config2.projectPath),
     commandRoot: config2.commandRoot,
     commandRootExists: await pathExists(config2.commandRoot),
-    lockfilePath: join4(config2.projectPath, "Temp", "UnityLockfile"),
-    lockfileExists: await pathExists(join4(config2.projectPath, "Temp", "UnityLockfile")),
-    editorInstancePath: join4(config2.projectPath, "Library", "EditorInstance.json"),
-    editorInstanceExists: await pathExists(join4(config2.projectPath, "Library", "EditorInstance.json")),
+    lockfilePath: join5(config2.projectPath, "Temp", "UnityLockfile"),
+    lockfileExists: await pathExists(join5(config2.projectPath, "Temp", "UnityLockfile")),
+    editorInstancePath: join5(config2.projectPath, "Library", "EditorInstance.json"),
+    editorInstanceExists: await pathExists(join5(config2.projectPath, "Library", "EditorInstance.json")),
     editorLogPath,
     editorLogExists: await pathExists(editorLogPath),
     legacyMcpUnity: {
@@ -21605,7 +21981,7 @@ async function unityExecuteEditorCommand(params) {
 }
 async function unityCaptureScreenshot(params) {
   const config2 = resolveProjectConfig(params);
-  const outputPath = params.outputPath || join4(config2.commandRoot, "screenshots", `screenshot-${Date.now()}.png`);
+  const outputPath = params.outputPath || join5(config2.commandRoot, "screenshots", `screenshot-${Date.now()}.png`);
   const response = await executeEditorCommand({
     unityPath: config2.unityPath,
     projectPath: config2.projectPath,
@@ -21634,7 +22010,7 @@ async function unityCaptureScreenshot(params) {
 }
 async function unityStartFrameCapture(params) {
   const config2 = resolveProjectConfig(params);
-  const framesDir = params.framesDir || join4(config2.commandRoot, "recordings", `rec-${Date.now()}`);
+  const framesDir = params.framesDir || join5(config2.commandRoot, "recordings", `rec-${Date.now()}`);
   const response = await executeEditorCommand({
     unityPath: config2.unityPath,
     projectPath: config2.projectPath,
@@ -21729,7 +22105,7 @@ function normalizeOutputs(outputs) {
   }
   return {};
 }
-function toToolResult(value) {
+function toToolResult2(value) {
   return {
     content: [
       {
@@ -21741,7 +22117,7 @@ function toToolResult(value) {
 }
 function defaultEditorLogPath() {
   const localAppData = process.env.LOCALAPPDATA || "";
-  return join4(localAppData, "Unity", "Editor", "Editor.log");
+  return join5(localAppData, "Unity", "Editor", "Editor.log");
 }
 async function readMcpSettings(filePath) {
   try {
