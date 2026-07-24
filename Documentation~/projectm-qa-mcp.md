@@ -128,3 +128,7 @@ The code is guarded by `PROJECTM_TEST_FRAMEWORK`, set from the asmdef's `version
 `manifest.json` can name one commit while UPM is still running an older checkout — `packages-lock.json`
 holds the hash UPM actually resolves. So do not treat the manifest as proof. Check `bridgeVersion` in
 the `ping` response instead: it comes from the code that is really loaded.
+
+`bridgeVersion` is a constant in `EditorToolBridge`, deliberately separate from `package.json` so it can
+be bumped mid-session to prove a recompile actually landed. Keep the two in step when releasing, or the
+version a caller reads will not match the version the package claims.
