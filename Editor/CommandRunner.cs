@@ -611,6 +611,23 @@ namespace ProjectMQaMcp.Editor
         public float originX;
         public float originY;
 
+        // --- per-window pixel capture (editor_window_capture / editor_drag_capture) ---
+        public string captureBackend;
+        public bool includeChrome;
+        public int captureSettleMs;
+        public bool allowUniform;
+
+        // --- drag (editor_drag / editor_drag_capture) ---
+        public float fromX;
+        public float fromY;
+        public float toX;
+        public float toY;
+        public int durationMs;
+        public int moveStepCount;
+        public string coordinateSpace;
+        // Text rather than bool because the default is true and JsonUtility cannot tell "absent" from "false".
+        public string captureEveryMove;
+
         public string prefKey;
         public string prefStore;
         public string prefType;
