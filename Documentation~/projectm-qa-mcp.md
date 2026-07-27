@@ -65,7 +65,10 @@ Commands:
 | `editor_window_open` | Open by type name or by menu path |
 | `editor_window_close` / `editor_window_focus` | Close, or focus and refresh layout |
 | `editor_window_dump` | Fields with values, invokable methods, IMGUI layout rects, UIElements tree |
-| `editor_window_screenshot` | PNG of the window as it appears on screen |
+| `editor_window_screenshot` | Legacy PNG capture through the editor framebuffer (docked windows only) |
+| `editor_window_capture` | PNG of one window's real pixels, docked or floating |
+| `editor_drag` | MouseDown, several MouseDrag steps, MouseUp inside a window |
+| `editor_drag_capture` | The same drag, with a PNG after the press, every move and the release |
 | `editor_get_field` / `editor_set_field` | Read/write by dotted+indexed path, e.g. `_resolutions[0].name` |
 | `editor_invoke_method` | Call a method on the window instance (escape hatch) |
 | `editor_click` | Inject a click at a point, or at a layout entry index |
@@ -86,23 +89,57 @@ the one with the most entries.
 delivers into the host view's space, which also contains the tab strip. Clicks must be offset by the
 container's `worldBound`, or they land high by the height of the tab strip.
 
-**Screenshots are a known open issue.** `editor_window_screenshot` is wired up but does not reliably
-return pixels, so treat it as unverified and read window state with `editor_window_dump` instead.
+**Use `editor_window_capture`, not `editor_window_screenshot`.** The old command reads the editor
+framebuffer through `InternalEditorUtility.ReadScreenPixel`, which only contains the **main editor
+window**: a floating window is not in those pixels at all, and even for a docked window the read comes
+back a single flat colour when it is issued from the bridge's `EditorApplication.update` turn. It is
+kept unchanged for callers that already depend on it, and it still refuses rather than writing a
+convincing blank PNG.
 
-What is established: `ReadScreenPixel` reads bottom-left **physical pixels** while the editor reports
-rects top-left in **points**, so the rect is flipped and scaled by `EditorGUIUtility.pixelsPerPoint`
-(1.25 on a 1920x1080 display at 125% Windows scaling). It reads the **main editor window's**
-framebuffer, not the desktop — a window in its own floating container is not in those pixels at all,
-and the command refuses rather than writing a blank PNG. Beyond that, calls made from the bridge's
-`EditorApplication.update` turn come back a single flat colour even for a docked window with the
-editor in the foreground, which points at needing a real GUI repaint context; deferring the capture
-into one (the way test runs defer to callbacks) is the likely fix and is not implemented.
+`editor_window_capture` goes around the problem by asking Windows for the pixels instead of Unity:
 
-Because a blank PNG looks exactly like a real one, the command reports `uniformColor`, logs a warning,
-and the MCP tool returns `success: false` when the capture is flat. Every input to the origin
-calculation comes back too (`screenResolution`, `pixelsPerPoint`, `containerRect`, `mainWindowRect`,
-`windowRect`, `hostRect`, `inMainWindow`, `screenOrigin`), and `originX`/`originY` override the
-computed origin, so the next attempt can be driven from numbers rather than guesswork.
+1. It finds the OS window hosting the target's `ContainerWindow` by matching the container's rect
+   against the process's top-level windows. Unity does not expose that handle, and matching on the
+   title breaks the moment a tool renames its tab, so the match is geometric and its residual is
+   reported — a wrong match is visible in the response instead of silently producing a wrong image.
+2. That match also *measures* the points-to-pixels scale, which is why 100%, 125%, 150% and 200%
+   Windows scaling need no special casing and no DPI setting is read.
+3. `PrintWindow(PW_RENDERFULLCONTENT)` then reads that window's own composition surface. It needs no
+   focus, does not raise or move the window, and is unaffected by anything stacked on top.
+4. The bitmap is cropped to the target window's host rect, minus the dock tab strip unless
+   `includeChrome` is set — so a GameView, a SceneView or a neighbouring tab in the same container
+   cannot leak in.
+
+Two fallbacks follow when a driver refuses `PrintWindow`: a plain screen read of the same rect
+(correct pixels, but anything overlapping shows through — reported as `occluded`), and finally the
+legacy framebuffer path for docked windows. Whichever ran comes back as `captureBackend`, alongside
+`outputPath`, `pngExists`, `pngBytes`, `imageWidth`, `imageHeight`, `windowRect`, `hostRect`,
+`containerRect`, `captureRect`, `pixelsPerPoint`, `measuredScale`, `inMainWindow`, `uniformColor`,
+`osWindowHandle`, `osWindowRect`, `mappingBasis` and `backendAttempts`. A capture that produces no
+pixels fails with the target window's identity and the reason each backend gave; it never returns an
+empty image as a success.
+
+**Dragging needs deltas, not just positions.** `editor_drag` sends MouseDown, then `moveStepCount`
+**MouseDrag** events along the path, then MouseUp. The event type matters: Unity only emits MouseMove
+when no button is held, so both IMGUI drag handling and UI Toolkit's pressed-button move path key off
+MouseDrag. So does the per-step `Event.delta` — IMGUI code reads `Event.current.delta` rather than
+recomputing from `mousePosition`, and GraphView's `SelectionDragger` moves a node by exactly that
+delta, so a drag built from positions alone moves nothing.
+
+Coordinates are content-local by default: the host view's border — the dock tab strip on a docked
+window, nothing on a floating one — is added automatically, so the same numbers work before and after
+the user docks the window. Pass `coordinateSpace: "host"` for the raw host-view space that
+`editor_click` uses.
+
+`editor_drag_capture` runs the identical gesture and captures the target window right after the
+press, after each move and after the release, which is what makes a mid-drag rendering checkable
+rather than only the end state. It returns the ordered frame list with each path, byte count, image
+size, backend and failure reason, and fails outright if not one frame could be captured.
+
+`Window/NX3 MCP/Capture Probe` opens a window built for exercising all of this: a UI Toolkit GraphView
+with two draggable nodes and an edge, plus an IMGUI strip that draws and counts the raw events it
+receives. Every observable is also a plain instance field, so `editor_get_field` can confirm the same
+facts the PNGs are supposed to show.
 
 ## Test-runner commands
 

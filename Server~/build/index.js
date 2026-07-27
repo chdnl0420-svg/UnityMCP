@@ -21482,7 +21482,9 @@ var JSON_OUTPUT_KEYS = /* @__PURE__ */ new Set([
   "tests",
   "result",
   "entryRect",
-  "focusedWindow"
+  "focusedWindow",
+  "events",
+  "frames"
 ]);
 function registerEditorTools(server2) {
   server2.tool(
@@ -21562,6 +21564,95 @@ function registerEditorTools(server2) {
         success: result.success && bytes > 0 && !blank,
         note: blank ? "Capture came back a single flat colour. ReadScreenPixel reads the editor framebuffer, so this happens when the window is not actually rendered on screen. Read window state with unity_editor_window_dump instead." : void 0,
         outputs: { ...result.outputs, outputPath, pngExists: await pathExists(outputPath), pngBytes: bytes }
+      });
+    }
+  );
+  server2.tool(
+    "unity_editor_window_capture",
+    "Captures the real on-screen pixels of one editor window, whether it is docked or floating, and writes them to a PNG. Unlike unity_editor_window_screenshot this reads the operating system window that hosts the target, so a floating window works and no GameView, SceneView or neighbouring tab can leak into the image. The window is not focused, moved, resized or re-docked. A capture that comes back empty is reported as a failure with the reason, never as a blank success.",
+    {
+      ...commonShape,
+      ...windowShape,
+      outputPath: external_exports.string().optional().describe("Defaults to <commandRoot>/screenshots/editor-window-capture-<timestamp>.png."),
+      includeChrome: external_exports.boolean().optional().describe("Include the dock tab strip around the window. Off by default, so only the window's own content is captured."),
+      captureBackend: external_exports.enum(["auto", "printwindow", "screen", "framebuffer"]).optional().describe("Force one backend instead of trying them in order. For diagnosing a bad capture."),
+      captureSettleMs: external_exports.number().int().min(0).max(2e3).optional().describe("Wait this long after the repaint before reading pixels (default 24)."),
+      allowUniform: external_exports.boolean().optional().describe("Accept a single-colour image instead of treating it as no pixels. Use for a legitimately blank window.")
+    },
+    async (params) => {
+      const config2 = resolveProjectConfig(params);
+      const outputPath = params.outputPath || join4(config2.commandRoot, "screenshots", `editor-window-capture-${Date.now()}.png`);
+      const result = await runBridge(params, "editor_window_capture", {
+        outputPath,
+        includeChrome: params.includeChrome ?? false,
+        captureBackend: params.captureBackend ?? "auto",
+        captureSettleMs: params.captureSettleMs ?? 0,
+        allowUniform: params.allowUniform ?? false
+      });
+      const bytes = await fileSize(outputPath);
+      const exists = await pathExists(outputPath);
+      return toToolResult({
+        ...result,
+        success: result.success && exists && bytes > 0,
+        outputs: { ...result.outputs, outputPath, pngExists: exists, pngBytes: bytes }
+      });
+    }
+  );
+  const dragShape = {
+    fromX: external_exports.number().describe("Drag start x, in window-local coordinates."),
+    fromY: external_exports.number().describe("Drag start y, in window-local coordinates."),
+    toX: external_exports.number().describe("Drag end x."),
+    toY: external_exports.number().describe("Drag end y."),
+    durationMs: external_exports.number().int().min(0).max(6e4).optional().describe("Total gesture time, spread over the moves (default 240)."),
+    moveStepCount: external_exports.number().int().min(1).max(240).optional().describe("How many MouseDrag events to send between press and release (default 12)."),
+    coordinateSpace: external_exports.enum(["content", "host"]).optional().describe(`"content" (default) treats 0,0 as the window's content corner and adds the dock tab strip offset automatically; "host" sends raw host-view coordinates, matching unity_editor_click.`),
+    button: external_exports.number().int().min(0).max(2).optional(),
+    modifiers: external_exports.string().optional().describe("Comma separated: shift, control, alt, command."),
+    noFocus: external_exports.boolean().optional().describe("Do not focus the window first. Most drags need focus, so this is off by default.")
+  };
+  server2.tool(
+    "unity_editor_drag",
+    "Drags the mouse inside an editor window: one MouseDown, several MouseDrag events along the path, then MouseUp. The moves carry a real per-step delta, which is what makes UI Toolkit GraphView node dragging and IMGUI drag handling respond instead of seeing a click. Coordinates are window-local and the dock tab strip offset is added automatically. Returns every coordinate actually sent.",
+    { ...commonShape, ...windowShape, ...dragShape },
+    async (params) => toToolResult(await runBridge(params, "editor_drag", dragParameters(params)))
+  );
+  server2.tool(
+    "unity_editor_drag_capture",
+    "Runs the same drag as unity_editor_drag and saves a PNG of the target window right after the MouseDown, after each MouseDrag and after the MouseUp, so a mid-gesture rendering can be checked rather than only the end state. Works for floating and docked windows. Returns the ordered frame list with each path, size and failure reason.",
+    {
+      ...commonShape,
+      ...windowShape,
+      ...dragShape,
+      framesDir: external_exports.string().optional().describe("Directory for the frames. Defaults to <commandRoot>/screenshots/drag-<timestamp>."),
+      captureEveryMove: external_exports.boolean().optional().describe("Capture after every MouseDrag (default true). When false only the press and release frames are written."),
+      includeChrome: external_exports.boolean().optional(),
+      captureBackend: external_exports.enum(["auto", "printwindow", "screen", "framebuffer"]).optional(),
+      captureSettleMs: external_exports.number().int().min(0).max(2e3).optional(),
+      allowUniform: external_exports.boolean().optional()
+    },
+    async (params) => {
+      const config2 = resolveProjectConfig(params);
+      const framesDir = params.framesDir || join4(config2.commandRoot, "screenshots", `drag-${Date.now()}`);
+      const result = await runBridge(params, "editor_drag_capture", {
+        ...dragParameters(params),
+        framesDir,
+        captureEveryMove: params.captureEveryMove ?? true ? "true" : "false",
+        includeChrome: params.includeChrome ?? false,
+        captureBackend: params.captureBackend ?? "auto",
+        captureSettleMs: params.captureSettleMs ?? 0,
+        allowUniform: params.allowUniform ?? false
+      });
+      const frames = Array.isArray(result.outputs?.frames) ? result.outputs.frames : [];
+      const verified = await Promise.all(frames.map(async (frame) => ({
+        ...frame,
+        pngExists: await pathExists(frame?.path ?? ""),
+        pngBytes: await fileSize(frame?.path ?? "")
+      })));
+      const written = verified.filter((frame) => frame.pngExists && frame.pngBytes > 0).length;
+      return toToolResult({
+        ...result,
+        success: result.success && written > 0,
+        outputs: { ...result.outputs, framesDir, frames: verified, framesOnDisk: written }
       });
     }
   );
@@ -21760,6 +21851,20 @@ function registerEditorTools(server2) {
       refresh: params.refresh ?? false
     }))
   );
+}
+function dragParameters(params) {
+  return {
+    fromX: params.fromX,
+    fromY: params.fromY,
+    toX: params.toX,
+    toY: params.toY,
+    durationMs: params.durationMs ?? 240,
+    moveStepCount: params.moveStepCount ?? 12,
+    coordinateSpace: params.coordinateSpace ?? "content",
+    button: params.button ?? 0,
+    modifiers: params.modifiers,
+    noFocus: params.noFocus ?? false
+  };
 }
 async function runBridge(params, command, extra) {
   const config2 = resolveProjectConfig(params);

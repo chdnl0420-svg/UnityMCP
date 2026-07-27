@@ -33,7 +33,7 @@ namespace ProjectMQaMcp.Editor
     /// </summary>
     internal static class EditorToolBridge
     {
-        internal const string BridgeVersion = "0.3.0";
+        internal const string BridgeVersion = "0.4.3";
 
         private const int DefaultMaxDepth = 1;
         private const int ValuePreviewLimit = 400;
@@ -46,6 +46,9 @@ namespace ProjectMQaMcp.Editor
             "editor_window_focus",
             "editor_window_dump",
             "editor_window_screenshot",
+            "editor_window_capture",
+            "editor_drag",
+            "editor_drag_capture",
             "editor_set_field",
             "editor_get_field",
             "editor_invoke_method",
@@ -71,6 +74,9 @@ namespace ProjectMQaMcp.Editor
                 case "editor_window_focus": FocusWindow(p, response); return true;
                 case "editor_window_dump": DumpWindow(p, response); return true;
                 case "editor_window_screenshot": ScreenshotWindow(p, response); return true;
+                case "editor_window_capture": CaptureWindow(p, response); return true;
+                case "editor_drag": Drag(p, response); return true;
+                case "editor_drag_capture": DragCapture(p, response); return true;
                 case "editor_set_field": SetField(p, response); return true;
                 case "editor_get_field": GetField(p, response); return true;
                 case "editor_invoke_method": InvokeMethod(p, response); return true;
@@ -778,7 +784,7 @@ namespace ProjectMQaMcp.Editor
             return result is bool && (bool)result;
         }
 
-        private static void RepaintImmediate(EditorWindow window)
+        internal static void RepaintImmediate(EditorWindow window)
         {
             try
             {
@@ -1009,7 +1015,7 @@ namespace ProjectMQaMcp.Editor
         /// Desktop rect of the OS window that hosts this EditorWindow. A docked window's own position
         /// is relative to this, so both are needed to place a screen-space capture.
         /// </summary>
-        private static Rect ContainerRect(EditorWindow window)
+        internal static Rect ContainerRect(EditorWindow window)
         {
             try
             {
@@ -1034,7 +1040,7 @@ namespace ProjectMQaMcp.Editor
         /// The host view's rect in desktop points, which is what a screen capture needs. Preferred over
         /// the window's own position because it is the view that actually owns the pixels on screen.
         /// </summary>
-        private static Rect HostScreenRect(EditorWindow window)
+        internal static Rect HostScreenRect(EditorWindow window)
         {
             try
             {
@@ -1054,7 +1060,7 @@ namespace ProjectMQaMcp.Editor
             return new Rect(0f, 0f, 0f, 0f);
         }
 
-        private static object ContainerOf(EditorWindow window)
+        internal static object ContainerOf(EditorWindow window)
         {
             try
             {
@@ -1069,7 +1075,7 @@ namespace ProjectMQaMcp.Editor
         }
 
         /// <summary>The container window holding the main editor, which is the one screen reads see.</summary>
-        private static object MainContainer()
+        internal static object MainContainer()
         {
             try
             {
@@ -1126,6 +1132,61 @@ namespace ProjectMQaMcp.Editor
             {
                 notes.Add("borderTop failed: " + e.Message);
                 return 0f;
+            }
+        }
+
+        /// <summary>
+        /// The window the target's host view is currently showing.
+        ///
+        /// A dock area holds several windows and draws exactly one of them. A background tab keeps a
+        /// stale position and owns no pixels, so anything that reads the screen there gets whichever tab
+        /// is in front - a Scene request quietly returning the Game view, for instance. Comparing this
+        /// against the requested window is what turns that into an error instead of a wrong image.
+        /// </summary>
+        internal static EditorWindow VisibleViewOf(EditorWindow window)
+        {
+            try
+            {
+                var parentField = typeof(EditorWindow).GetField("m_Parent", BindingFlags.Instance | BindingFlags.NonPublic);
+                var parent = parentField != null ? parentField.GetValue(window) : null;
+                return parent != null ? ReadMemberByName(parent, "actualView") as EditorWindow : null;
+            }
+            catch (Exception)
+            {
+                // Unknown means "cannot prove it is hidden", and the caller treats that as visible.
+                return null;
+            }
+        }
+
+        /// <summary>
+        /// The chrome the host view draws around the window's content: a dock area reports its tab strip
+        /// as the top border, a floating window reports zero. Capture uses it to cut the tab strip off,
+        /// and drag uses it to turn content-local coordinates into the host-view space SendEvent expects.
+        /// </summary>
+        internal static RectOffset BorderSize(EditorWindow window, List<string> notes)
+        {
+            try
+            {
+                var parentField = typeof(EditorWindow).GetField("m_Parent", BindingFlags.Instance | BindingFlags.NonPublic);
+                var parent = parentField != null ? parentField.GetValue(window) : null;
+                if (parent == null)
+                {
+                    if (notes != null) notes.Add("borderSize: no m_Parent");
+                    return null;
+                }
+
+                var border = ReadMemberByName(parent, "borderSize") as RectOffset;
+                if (border == null && notes != null)
+                {
+                    notes.Add("borderSize: host view has no borderSize");
+                }
+
+                return border;
+            }
+            catch (Exception e)
+            {
+                if (notes != null) notes.Add("borderSize failed: " + e.Message);
+                return null;
             }
         }
 
@@ -1512,6 +1573,351 @@ namespace ProjectMQaMcp.Editor
             response.AddOutput("screenOrigin", F(origin.x) + "," + F(origin.y));
         }
 
+        // ------------------------------------------------------------------ per-window pixel capture
+
+        /// <summary>
+        /// Captures only the target EditorWindow's pixels, docked or floating, without touching its
+        /// position, size, docking or focus. See EditorWindowCapture for how the pixels are obtained.
+        /// </summary>
+        private static void CaptureWindow(CommandParameters p, CommandResponse response)
+        {
+            var window = ResolveWindowOrThrow(p);
+            var outputPath = Require(p.outputPath, "outputPath");
+
+            DescribeTarget(window, response);
+
+            var result = EditorWindowCapture.Capture(window, outputPath, CaptureOptionsFrom(p));
+            EditorWindowCapture.WriteOutputs(result, response, string.Empty);
+
+            if (!result.success)
+            {
+                // Never let an empty or missing image pass as a success: the caller would treat a blank
+                // PNG as evidence the window rendered.
+                throw new InvalidOperationException(DescribeCaptureFailure(window, result));
+            }
+        }
+
+        private static EditorWindowCapture.Options CaptureOptionsFrom(CommandParameters p)
+        {
+            return new EditorWindowCapture.Options
+            {
+                backend = string.IsNullOrEmpty(p.captureBackend) ? "auto" : p.captureBackend,
+                includeChrome = p.includeChrome,
+                settleMs = p.captureSettleMs > 0 ? p.captureSettleMs : 24,
+                allowUniform = p.allowUniform,
+            };
+        }
+
+        private static void DescribeTarget(EditorWindow window, CommandResponse response)
+        {
+            response.AddOutput("targetWindowType", window.GetType().FullName);
+            response.AddOutput("targetWindowTitle", window.titleContent != null ? window.titleContent.text : string.Empty);
+            response.AddOutput("targetInstanceId", window.GetInstanceID().ToString(CultureInfo.InvariantCulture));
+        }
+
+        private static string DescribeCaptureFailure(EditorWindow window, EditorWindowCapture.Result result)
+        {
+            var sb = new StringBuilder();
+            sb.Append("Capture failed for ").Append(window.GetType().FullName);
+            if (window.titleContent != null && !string.IsNullOrEmpty(window.titleContent.text))
+            {
+                sb.Append(" ('").Append(window.titleContent.text).Append("')");
+            }
+
+            sb.Append(" instanceId=").Append(window.GetInstanceID().ToString(CultureInfo.InvariantCulture));
+            sb.Append(", hostRect=").Append(RectJson(result.hostRect));
+            sb.Append(", inMainWindow=").Append(result.inMainWindow ? "true" : "false");
+            sb.Append(". Reason: ").Append(result.failureReason ?? "unknown");
+
+            if (result.attempts.Count > 0)
+            {
+                sb.Append(" Backends tried: ").Append(string.Join(" | ", result.attempts.ToArray()));
+            }
+
+            return sb.ToString();
+        }
+
+        // ------------------------------------------------------------------ drag
+
+        private static void Drag(CommandParameters p, CommandResponse response)
+        {
+            RunDrag(p, response, false);
+        }
+
+        private static void DragCapture(CommandParameters p, CommandResponse response)
+        {
+            RunDrag(p, response, true);
+        }
+
+        /// <summary>
+        /// Presses, moves and releases the mouse inside one EditorWindow, optionally saving the window's
+        /// pixels at every stage of the gesture.
+        ///
+        /// Two details decide whether a drag is actually recognised rather than looking like a click.
+        /// First, the moves are MouseDrag events, not MouseMove: Unity only emits MouseMove when no
+        /// button is held, so IMGUI's drag handling and UI Toolkit's MouseMoveEvent-with-pressed-button
+        /// path both key off MouseDrag. Second, every move carries the delta since the previous point -
+        /// IMGUI code reads Event.current.delta rather than recomputing from mousePosition, and
+        /// GraphView's SelectionDragger moves nodes by exactly that delta, so a zero delta drags nothing.
+        ///
+        /// Coordinates are content-local by default. The host view's border - the dock tab strip on a
+        /// docked window, nothing on a floating one - is added automatically, so the same coordinates
+        /// work before and after the user docks the window.
+        /// </summary>
+        private static void RunDrag(CommandParameters p, CommandResponse response, bool capture)
+        {
+            var window = ResolveWindowOrThrow(p);
+            var notes = new List<string>();
+
+            var steps = p.moveStepCount > 0 ? p.moveStepCount : 12;
+            steps = Mathf.Clamp(steps, 1, 240);
+            var durationMs = p.durationMs > 0 ? p.durationMs : 240;
+            var stepDelayMs = Mathf.Clamp(durationMs / steps, 0, 2000);
+
+            var space = string.IsNullOrEmpty(p.coordinateSpace)
+                ? "content"
+                : p.coordinateSpace.Trim().ToLowerInvariant();
+
+            var offset = Vector2.zero;
+            if (space == "content")
+            {
+                var border = BorderSize(window, notes);
+                if (border != null)
+                {
+                    offset = new Vector2(border.left, border.top);
+                }
+            }
+            else if (space != "host")
+            {
+                throw new ArgumentException("coordinateSpace must be 'content' (default) or 'host'.");
+            }
+
+            var from = new Vector2(p.fromX, p.fromY) + offset;
+            var to = new Vector2(p.toX, p.toY) + offset;
+            var modifiers = ParseModifiers(p.modifiers);
+            var button = p.button;
+
+            string framesDir = null;
+            var captureEveryMove = true;
+            EditorWindowCapture.Options captureOptions = null;
+            if (capture)
+            {
+                framesDir = Require(p.framesDir, "framesDir");
+                Directory.CreateDirectory(framesDir);
+                // Tri-state on purpose: JsonUtility cannot express "absent" for a bool, and the useful
+                // default here is true, so the parameter travels as text.
+                captureEveryMove = string.IsNullOrEmpty(p.captureEveryMove) || ParseBool(p.captureEveryMove);
+                captureOptions = CaptureOptionsFrom(p);
+            }
+
+            if (!p.noFocus)
+            {
+                // A drag needs the window to own the mouse; focusing is part of the gesture, unlike the
+                // capture command which must leave window order untouched.
+                window.Focus();
+            }
+
+            RepaintImmediate(window);
+
+            var events = new StringBuilder("[");
+            var frames = new StringBuilder("[");
+            var eventCount = 0;
+            var moveCount = 0;
+            var frameIndex = 0;
+            var frameOk = 0;
+            var frameFailed = 0;
+
+            var down = new Event
+            {
+                type = EventType.MouseDown,
+                mousePosition = from,
+                button = button,
+                clickCount = 1,
+                modifiers = modifiers,
+                delta = Vector2.zero,
+            };
+            var downSent = SendEvent(window, down);
+            eventCount++;
+            AppendDragEvent(events, eventCount - 1, "down", from, offset, Vector2.zero, downSent);
+            RepaintImmediate(window);
+            if (capture)
+            {
+                AppendDragFrame(frames, window, framesDir, ref frameIndex, "down", from, captureOptions,
+                    ref frameOk, ref frameFailed);
+            }
+
+            var previous = from;
+            for (var step = 1; step <= steps; step++)
+            {
+                var t = (float)step / steps;
+                var point = Vector2.Lerp(from, to, t);
+                var delta = point - previous;
+
+                if (stepDelayMs > 0)
+                {
+                    System.Threading.Thread.Sleep(stepDelayMs);
+                }
+
+                var move = new Event
+                {
+                    type = EventType.MouseDrag,
+                    mousePosition = point,
+                    button = button,
+                    clickCount = 0,
+                    modifiers = modifiers,
+                    delta = delta,
+                };
+                var moveSent = SendEvent(window, move);
+                eventCount++;
+                moveCount++;
+                AppendDragEvent(events, eventCount - 1, "move", point, offset, delta, moveSent);
+
+                RepaintImmediate(window);
+                if (capture && captureEveryMove)
+                {
+                    AppendDragFrame(frames, window, framesDir, ref frameIndex, "move", point, captureOptions,
+                        ref frameOk, ref frameFailed);
+                }
+
+                previous = point;
+            }
+
+            var up = new Event
+            {
+                type = EventType.MouseUp,
+                mousePosition = to,
+                button = button,
+                clickCount = 1,
+                modifiers = modifiers,
+                delta = Vector2.zero,
+            };
+            var upSent = SendEvent(window, up);
+            eventCount++;
+            AppendDragEvent(events, eventCount - 1, "up", to, offset, Vector2.zero, upSent);
+
+            window.Repaint();
+            RepaintImmediate(window);
+            if (capture)
+            {
+                AppendDragFrame(frames, window, framesDir, ref frameIndex, "up", to, captureOptions,
+                    ref frameOk, ref frameFailed);
+            }
+
+            events.Append(']');
+            frames.Append(']');
+
+            DescribeTarget(window, response);
+            response.AddOutput("coordinateSpace", space);
+            response.AddOutput("contentOffset", F(offset.x) + "," + F(offset.y));
+            response.AddOutput("from", F(from.x) + "," + F(from.y));
+            response.AddOutput("to", F(to.x) + "," + F(to.y));
+            response.AddOutput("moveStepCount", steps.ToString(CultureInfo.InvariantCulture));
+            response.AddOutput("durationMs", durationMs.ToString(CultureInfo.InvariantCulture));
+            response.AddOutput("stepDelayMs", stepDelayMs.ToString(CultureInfo.InvariantCulture));
+            response.AddOutput("eventCount", eventCount.ToString(CultureInfo.InvariantCulture));
+            response.AddOutput("moveCount", moveCount.ToString(CultureInfo.InvariantCulture));
+            response.AddOutput("events", events.ToString());
+            // SendEvent's return value says the event was consumed, not that the tool reacted, so it is
+            // reported per event rather than folded into a single pass/fail.
+            response.AddOutput("mouseDownReturned", downSent ? "true" : "false");
+            response.AddOutput("mouseUpReturned", upSent ? "true" : "false");
+
+            if (notes.Count > 0)
+            {
+                response.AddOutput("dragNotes", string.Join(" | ", notes.ToArray()));
+            }
+
+            if (capture)
+            {
+                response.AddOutput("framesDir", framesDir);
+                response.AddOutput("captureEveryMove", captureEveryMove ? "true" : "false");
+                response.AddOutput("frameCount", frameIndex.ToString(CultureInfo.InvariantCulture));
+                response.AddOutput("framesCaptured", frameOk.ToString(CultureInfo.InvariantCulture));
+                response.AddOutput("framesFailed", frameFailed.ToString(CultureInfo.InvariantCulture));
+                response.AddOutput("frames", frames.ToString());
+
+                if (frameOk == 0)
+                {
+                    throw new InvalidOperationException(
+                        "The drag ran but no frame could be captured, so there is no rendering evidence. " +
+                        "First failure: " + FirstFrameError(frames.ToString()));
+                }
+            }
+        }
+
+        private static void AppendDragEvent(StringBuilder sb, int index, string phase, Vector2 point,
+            Vector2 offset, Vector2 delta, bool sent)
+        {
+            if (sb.Length > 1) sb.Append(',');
+            sb.Append("{\"i\":").Append(index.ToString(CultureInfo.InvariantCulture));
+            sb.Append(",\"phase\":\"").Append(phase).Append('"');
+            sb.Append(",\"x\":").Append(F(point.x));
+            sb.Append(",\"y\":").Append(F(point.y));
+            sb.Append(",\"contentX\":").Append(F(point.x - offset.x));
+            sb.Append(",\"contentY\":").Append(F(point.y - offset.y));
+            sb.Append(",\"deltaX\":").Append(F(delta.x));
+            sb.Append(",\"deltaY\":").Append(F(delta.y));
+            sb.Append(",\"sendEventReturned\":").Append(sent ? "true" : "false");
+            sb.Append('}');
+        }
+
+        private static void AppendDragFrame(StringBuilder sb, EditorWindow window, string framesDir,
+            ref int frameIndex, string phase, Vector2 point, EditorWindowCapture.Options options,
+            ref int ok, ref int failed)
+        {
+            var path = Path.Combine(framesDir,
+                string.Format(CultureInfo.InvariantCulture, "drag_{0:D3}_{1}.png", frameIndex, phase));
+
+            EditorWindowCapture.Result result;
+            string error = null;
+            try
+            {
+                result = EditorWindowCapture.Capture(window, path, options);
+                if (!result.success)
+                {
+                    error = result.failureReason ?? "unknown";
+                }
+            }
+            catch (Exception e)
+            {
+                result = new EditorWindowCapture.Result { outputPath = path };
+                error = e.Message;
+            }
+
+            if (sb.Length > 1) sb.Append(',');
+            sb.Append("{\"i\":").Append(frameIndex.ToString(CultureInfo.InvariantCulture));
+            sb.Append(",\"phase\":\"").Append(phase).Append('"');
+            sb.Append(",\"x\":").Append(F(point.x));
+            sb.Append(",\"y\":").Append(F(point.y));
+            sb.Append(",\"path\":\"").Append(Esc(path)).Append('"');
+            sb.Append(",\"success\":").Append(result.success ? "true" : "false");
+            sb.Append(",\"exists\":").Append(result.pngExists ? "true" : "false");
+            sb.Append(",\"bytes\":").Append(result.pngBytes.ToString(CultureInfo.InvariantCulture));
+            sb.Append(",\"width\":").Append(result.imageWidth.ToString(CultureInfo.InvariantCulture));
+            sb.Append(",\"height\":").Append(result.imageHeight.ToString(CultureInfo.InvariantCulture));
+            sb.Append(",\"backend\":\"").Append(Esc(result.backend)).Append('"');
+            sb.Append(",\"uniformColor\":").Append(result.uniformColor ? "true" : "false");
+            if (error != null)
+            {
+                sb.Append(",\"error\":\"").Append(Esc(error)).Append('"');
+            }
+            sb.Append('}');
+
+            if (result.success) ok++; else failed++;
+            frameIndex++;
+        }
+
+        private static string FirstFrameError(string framesJson)
+        {
+            var marker = "\"error\":\"";
+            var start = framesJson.IndexOf(marker, StringComparison.Ordinal);
+            if (start < 0) return "no error recorded";
+
+            start += marker.Length;
+            var end = framesJson.IndexOf('"', start);
+            return end > start ? framesJson.Substring(start, end - start) : "no error recorded";
+        }
+
         // ------------------------------------------------------------------ menus
 
         private static void MenuExecute(CommandParameters p, CommandResponse response)
@@ -1838,7 +2244,7 @@ namespace ProjectMQaMcp.Editor
             return null;
         }
 
-        private static EditorWindow ResolveWindowOrThrow(CommandParameters p)
+        internal static EditorWindow ResolveWindowOrThrow(CommandParameters p)
         {
             var window = ResolveWindow(p);
             if (window != null)
@@ -1881,7 +2287,7 @@ namespace ProjectMQaMcp.Editor
             }
         }
 
-        private static object ReadMemberByName(object instance, string name)
+        internal static object ReadMemberByName(object instance, string name)
         {
             if (instance == null)
             {
@@ -2108,13 +2514,13 @@ namespace ProjectMQaMcp.Editor
             return text.Substring(0, limit) + "...(+" + (text.Length - limit).ToString(CultureInfo.InvariantCulture) + " chars)";
         }
 
-        private static string RectJson(Rect rect)
+        internal static string RectJson(Rect rect)
         {
             return "{\"x\":" + F(rect.x) + ",\"y\":" + F(rect.y) +
                    ",\"w\":" + F(rect.width) + ",\"h\":" + F(rect.height) + "}";
         }
 
-        private static string F(float value)
+        internal static string F(float value)
         {
             return value.ToString("0.##", CultureInfo.InvariantCulture);
         }
