@@ -165,6 +165,11 @@ namespace ProjectMQaMcp.Editor
                         break;
                     }
 
+                    if (CompileBridge.TryExecute(request.command, parameters, response))
+                    {
+                        break;
+                    }
+
                     throw new NotSupportedException($"Unsupported command: {request.command}");
             }
         }
@@ -195,7 +200,8 @@ namespace ProjectMQaMcp.Editor
 
             return builtIn
                 .Concat(EditorToolBridge.SupportedCommands)
-                .Concat(TestRunnerBridge.SupportedCommands);
+                .Concat(TestRunnerBridge.SupportedCommands)
+                .Concat(CompileBridge.SupportedCommands);
         }
 
         private static void CaptureScreenshot(CommandParameters parameters, CommandResponse response)
@@ -597,6 +603,7 @@ namespace ProjectMQaMcp.Editor
 
         public string targetMode;
         public int entryIndex;
+        // Point for editor_click and editor_move. Drag has its own from/to pair below.
         public float x;
         public float y;
         public int button;
@@ -624,9 +631,32 @@ namespace ProjectMQaMcp.Editor
         public float toY;
         public int durationMs;
         public int moveStepCount;
+        // Shared with editor_move, which uses the same content/host convention as the drag commands.
         public string coordinateSpace;
         // Text rather than bool because the default is true and JsonUtility cannot tell "absent" from "false".
         public string captureEveryMove;
+
+        // --- UI Toolkit element targeting (editor_element_query, targetMode "element") ---
+        public string elementName;
+        public string elementClass;
+        public string elementType;
+        public string elementText;
+        public int elementIndex;
+
+        // --- scroll (editor_scroll) ---
+        public float scrollX;
+        public float scrollY;
+
+        // --- hover (editor_move). Text, because the useful default is true and JsonUtility cannot
+        // tell "absent" from "false". ---
+        public string ensureWantsMouseMove;
+
+        // --- refresh/compile (editor_refresh) ---
+        // Text rather than bool for the same reason captureEveryMove is: JsonUtility cannot express "absent".
+        public string forceRecompile;
+
+        // --- selection (editor_selection_set) ---
+        public string assetPaths;
 
         public string prefKey;
         public string prefStore;

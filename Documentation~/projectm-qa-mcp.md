@@ -69,6 +69,11 @@ Commands:
 | `editor_window_capture` | PNG of one window's real pixels, docked or floating |
 | `editor_drag` | MouseDown, several MouseDrag steps, MouseUp inside a window |
 | `editor_drag_capture` | The same drag, with a PNG after the press, every move and the release |
+| `editor_move` | One MouseMove with no button held, for testing hover |
+| `editor_scroll` | One ScrollWheel at a point, for ScrollViews, long inspectors and GraphView zoom |
+| `editor_element_query` | UI Toolkit elements by name/class/type/text, with where each one is |
+| `editor_selection_get` / `editor_selection_set` | Read or set the editor selection |
+| `editor_refresh` / `editor_compile_status` | Reimport and recompile, and the compiler's own verdict |
 | `editor_get_field` / `editor_set_field` | Read/write by dotted+indexed path, e.g. `_resolutions[0].name` |
 | `editor_invoke_method` | Call a method on the window instance (escape hatch) |
 | `editor_click` | Inject a click at a point, or at a layout entry index |
@@ -140,6 +145,109 @@ size, backend and failure reason, and fails outright if not one frame could be c
 with two draggable nodes and an edge, plus an IMGUI strip that draws and counts the raw events it
 receives. Every observable is also a plain instance field, so `editor_get_field` can confirm the same
 facts the PNGs are supposed to show.
+
+### Hover needs a move with no button: `editor_move`
+
+A drag cannot stand in for a hover. UI Toolkit has no MouseDragEvent — a drag arrives as a
+`MouseMoveEvent` whose `pressedButtons` is non-zero, because the `MouseDown` that opened the gesture
+registered the press in `PointerDeviceState`. So a tool that only reacts to a bare cursor (GraphView
+highlighting the edge under the mouse, a rollover tint, a hover tooltip) sits on the branch a drag
+never takes, and was untestable over MCP.
+
+`editor_move` sends exactly one event: `EventType.MouseMove`, no button, carrying the delta from
+wherever the pointer was last left in that window. Because no `MouseDown` is ever sent, nothing
+registers a pressed button, so the receiving side sees `MouseMoveEvent` with `pressedButtons == 0`, and
+IMGUI sees `EventType.MouseMove`. It follows that the command cannot move a node, click-select, start a
+marquee, pan or open a context menu: every one of those needs a press.
+
+| Parameter | Meaning |
+|---|---|
+| `windowType` / `windowTitle` / `instanceId` | Target window, resolved exactly as `editor_click`, `editor_drag` and `editor_window_capture` resolve it |
+| `x`, `y` | Pointer position |
+| `coordinateSpace` | `content` (default) or `host`, identical to `editor_drag` |
+| `modifiers` | `shift`, `control`, `alt`, `command`, comma separated, same as the other input commands |
+
+The response carries `targetWindowType`, `targetWindowTitle`, `targetInstanceId`, the resolved `x`/`y`
+with `contentX`/`contentY` and `contentOffset`, `deltaX`/`deltaY` with `previousX`/`previousY` and
+`hadPreviousPoint`, `eventType` (`MouseMove`), `eventsSent`, `pressedButtons` (`0`), `events` and
+`sendEventReturned`.
+
+`sendEventReturned` is the raw return of `EditorWindow.SendEvent`. It is **not** a guarantee that the UI
+reacted — the same caveat as `editor_click` and `editor_drag`. Verify a hover by capturing the window
+right after the move with `editor_window_capture`, or by reading the tool's own state with
+`editor_get_field`.
+
+Two states are kept per window, not globally: the last pointer position, so consecutive calls carry a
+real delta (the first call into a window carries `0,0`, since it has nowhere to come from), and nothing
+else — moving over window A cannot shift window B's pointer path. Positions for closed windows are
+dropped on the next call.
+
+An unresolved window fails with the same message the other commands produce, listing the open window
+types. A point outside the window fails too, rather than reporting a successful move that hovered
+nothing: the error gives the content coordinates, the window's size and the border that content space
+added.
+
+**IMGUI only sees MouseMove in a window that asked for it.** `EditorWindow.wantsMouseMove` is Unity's
+own gate, for a real mouse as much as for an injected event: with it off, `OnGUI` never receives
+`EventType.MouseMove` no matter where the cursor is. So `editor_move` turns the flag on for the send
+and puts it straight back — the window keeps the setting it had, and the response reports both the
+original `wantsMouseMove` and whether it was `wantsMouseMoveEnabledForSend`. Pass
+`ensureWantsMouseMove: false` to send exactly what production would see. UI Toolkit does not use the
+flag and is unaffected either way. (Measured: with the flag off the IMGUI counter stays at 0 and the
+UI Toolkit counter still rises; with it handled, both rise.)
+
+`Window/NX3 MCP/Move Probe` (with `(Floating)` and `(Docked)` variants) is the target built for
+checking this. A UI Toolkit element records every `MouseMoveEvent` — count, `mousePosition`,
+`mouseDelta`, `pressedButtons` and the event type name — plus any `MouseDownEvent` or `MouseUpEvent`
+that should never arrive; an IMGUI strip counts the raw `EventType`s; and a GraphView node exposes the
+position, selection and pan that a move must leave untouched. `Tests/Editor/EditorMoveTests.cs` asserts
+all of it, docked and floating, and that `editor_window_capture` still works right after a move. Package
+tests need the project to list the package under `testables` in `Packages/manifest.json`.
+
+### Aiming at elements instead of pixels: `editor_element_query`
+
+A hard-coded coordinate breaks the moment a window is resized or a field is added above the target.
+`editor_element_query` finds UI Toolkit elements by `elementName`, `elementClass`, `elementType` or
+`elementText` (every filter given must match; text is a case-insensitive substring) and reports each
+hit's `type`, `name`, `classes`, `text`, rect, `centerX`/`centerY`, `enabled`, `visible` and
+`pickable`. Those coordinates are host-view space, so they go straight into `editor_click`,
+`editor_move` or `editor_scroll` with `coordinateSpace: "host"`.
+
+Or skip the copying: those three commands accept `targetMode: "element"` with the same filters and aim
+at the matched element's centre themselves. No match, several matches with an out-of-range
+`elementIndex`, or an element with no size each fail with what was asked for and what was there —
+never as a click into empty space that silently did nothing.
+
+`editor_scroll` sends one `EventType.ScrollWheel` at that point, with `scrollX`/`scrollY` as the
+delta. One notch is about 3 and positive y scrolls down, which is Unity's own convention, deliberately
+not renormalised. A zero delta is rejected rather than sent as a no-op.
+
+### The compile gate: `editor_refresh` and `editor_compile_status`
+
+`editor_refresh` reimports and, with `forceRecompile`, requests a script compilation;
+`editor_compile_status` reports what the compiler said. `errorCount` comes from Unity's own
+`CompilerMessages`, so zero errors means the assemblies really built — each message carries `type`,
+`assembly`, `file`, `line` and `column`.
+
+Three details make this work where a naive version would not:
+
+1. **The result outlives the process.** A recompile ends in a domain reload that wipes every static, so
+   the state is written to `.codex/unity-commands/compile/state.json` as each assembly finishes, not
+   accumulated in memory. A reload landing on a state file that still says `compiling` repairs it.
+2. **The refresh is deferred by one editor tick**, because the reload can otherwise kill the request
+   before its own response is written. The deferral runs on `EditorApplication.update` — the same tick
+   the command bridge runs on — rather than `delayCall`, which was observed not to fire while the
+   editor was unfocused with a modal window up.
+3. **`assetPaths` forces a targeted reimport.** A plain refresh does not notice an edit inside an
+   installed package; naming the file does.
+
+An unfocused editor can defer compiling until it regains focus. That is Unity's behaviour, not the
+command's, and the status says which state it is really in rather than claiming success.
+
+The Node side wraps this as `unity_editor_refresh`, which polls until compilation settles (treating a
+failed poll during the reload as "still busy") and reports success only when the compiler agreed.
+`unity_editor_wait_for_field` polls one field until it reaches an expected value, which replaces a
+fixed sleep after triggering slow work; both wait on this side, so the editor is never blocked.
 
 ## Test-runner commands
 
