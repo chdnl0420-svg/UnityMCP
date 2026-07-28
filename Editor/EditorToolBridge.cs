@@ -33,7 +33,7 @@ namespace ProjectMQaMcp.Editor
     /// </summary>
     internal static class EditorToolBridge
     {
-        internal const string BridgeVersion = "0.4.3";
+        internal const string BridgeVersion = "0.4.4";
 
         private const int DefaultMaxDepth = 1;
         private const int ValuePreviewLimit = 400;
@@ -49,6 +49,11 @@ namespace ProjectMQaMcp.Editor
             "editor_window_capture",
             "editor_drag",
             "editor_drag_capture",
+            "editor_move",
+            "editor_scroll",
+            "editor_element_query",
+            "editor_selection_get",
+            "editor_selection_set",
             "editor_set_field",
             "editor_get_field",
             "editor_invoke_method",
@@ -77,6 +82,11 @@ namespace ProjectMQaMcp.Editor
                 case "editor_window_capture": CaptureWindow(p, response); return true;
                 case "editor_drag": Drag(p, response); return true;
                 case "editor_drag_capture": DragCapture(p, response); return true;
+                case "editor_move": Move(p, response); return true;
+                case "editor_scroll": Scroll(p, response); return true;
+                case "editor_element_query": ElementQuery(p, response); return true;
+                case "editor_selection_get": SelectionGet(response); return true;
+                case "editor_selection_set": SelectionSet(p, response); return true;
                 case "editor_set_field": SetField(p, response); return true;
                 case "editor_get_field": GetField(p, response); return true;
                 case "editor_invoke_method": InvokeMethod(p, response); return true;
@@ -640,6 +650,12 @@ namespace ProjectMQaMcp.Editor
                 response.AddOutput("entryIndex", p.entryIndex.ToString(CultureInfo.InvariantCulture));
                 response.AddOutput("entryRect", RectJson(rect));
                 response.AddOutput("containerOffset", F(containerOffset.x) + "," + F(containerOffset.y));
+            }
+            else if (string.Equals(p.targetMode, "element", StringComparison.OrdinalIgnoreCase))
+            {
+                // A UI Toolkit element's worldBound is already in the space SendEvent delivers into, so
+                // its centre needs no offset - and it survives a resize, unlike a hard-coded pixel.
+                point = ResolveElementPoint(window, p, response);
             }
             else
             {
@@ -1916,6 +1932,602 @@ namespace ProjectMQaMcp.Editor
             start += marker.Length;
             var end = framesJson.IndexOf('"', start);
             return end > start ? framesJson.Substring(start, end - start) : "no error recorded";
+        }
+
+        // ------------------------------------------------------------------ hover (button-less move)
+
+        /// <summary>
+        /// Where the pointer was left in each window, so the next move can carry a real delta.
+        ///
+        /// Keyed per window on purpose: two windows have two independent cursors as far as their hover
+        /// handling is concerned, and a shared last-position would make one window's delta depend on
+        /// whichever window happened to be moved over previously.
+        /// </summary>
+        private static readonly Dictionary<int, Vector2> PointerPositions = new Dictionary<int, Vector2>();
+
+        /// <summary>
+        /// Moves the pointer inside one EditorWindow with no button held.
+        ///
+        /// This is what makes hover testable from outside the editor. editor_drag sends MouseDrag, and
+        /// UI Toolkit turns that into a MouseMoveEvent whose pressedButtons is non-zero, because the
+        /// MouseDown that opened the gesture registered the press in PointerDeviceState. Anything that
+        /// keys off "the cursor is over me and nothing is pressed" - GraphView highlighting the edge
+        /// under the mouse, for instance - therefore never runs during a drag. A bare MouseMove leaves
+        /// pressedButtons at 0 and takes that path instead.
+        ///
+        /// No MouseDown, MouseDrag or MouseUp is sent, so this cannot move a node, change the selection,
+        /// start a marquee, pan the view or open a context menu: every one of those needs a press.
+        ///
+        /// Coordinates follow editor_drag exactly - content-local by default with the dock tab strip
+        /// added automatically, or raw host-view space (what editor_click uses) via coordinateSpace
+        /// "host". The command adds no convention of its own.
+        /// </summary>
+        private static void Move(CommandParameters p, CommandResponse response)
+        {
+            var window = ResolveWindowOrThrow(p);
+            var notes = new List<string>();
+
+            var byElement = string.Equals(p.targetMode, "element", StringComparison.OrdinalIgnoreCase);
+
+            if (!byElement && (float.IsNaN(p.x) || float.IsInfinity(p.x) || float.IsNaN(p.y) || float.IsInfinity(p.y)))
+            {
+                throw new ArgumentException(
+                    $"x and y must be finite numbers for editor_move (got x={F(p.x)}, y={F(p.y)}).");
+            }
+
+            var space = byElement
+                ? "host"
+                : string.IsNullOrEmpty(p.coordinateSpace)
+                    ? "content"
+                    : p.coordinateSpace.Trim().ToLowerInvariant();
+            if (space != "content" && space != "host")
+            {
+                throw new ArgumentException("coordinateSpace must be 'content' (default) or 'host'.");
+            }
+
+            var border = BorderSize(window, notes);
+            var offset = border != null ? new Vector2(border.left, border.top) : Vector2.zero;
+
+            // Focus and a layout pass first, for the same reason click does it: hover targets - and any
+            // element rect this is about to aim at - are resolved from the last layout.
+            window.Focus();
+            RepaintImmediate(window);
+
+            // Everything below works in host-view space, because that is what SendEvent delivers into.
+            var point = byElement
+                ? ResolveElementPoint(window, p, response)
+                : space == "content" ? new Vector2(p.x, p.y) + offset : new Vector2(p.x, p.y);
+            var contentPoint = point - offset;
+
+            var size = window.position.size;
+            if (!byElement
+                && (contentPoint.x < 0f || contentPoint.y < 0f || contentPoint.x > size.x || contentPoint.y > size.y))
+            {
+                // A point outside the window would hover nothing at all, and reporting that as a
+                // successful move would look exactly like a hover the tool ignored.
+                throw new ArgumentException(string.Format(CultureInfo.InvariantCulture,
+                    "Point is outside {0}: content coordinates ({1}, {2}) are not within 0,0 - {3},{4}. " +
+                    "Content space adds the host border ({5}, {6}); pass coordinateSpace 'host' to send raw host-view coordinates.",
+                    window.GetType().FullName, F(contentPoint.x), F(contentPoint.y), F(size.x), F(size.y),
+                    F(offset.x), F(offset.y)));
+            }
+
+            var modifiers = ParseModifiers(p.modifiers);
+
+            var id = window.GetInstanceID();
+            PrunePointerPositions();
+            Vector2 previous;
+            var hadPrevious = PointerPositions.TryGetValue(id, out previous);
+            // First move into a window has nowhere to come from, so it carries no delta rather than a
+            // fabricated one.
+            var delta = hadPrevious ? point - previous : Vector2.zero;
+
+            var move = new Event
+            {
+                type = EventType.MouseMove,
+                mousePosition = point,
+                // button/clickCount are meaningless without a press. What decides pressedButtons on the
+                // receiving side is that no MouseDown was ever sent, not these fields.
+                button = 0,
+                clickCount = 0,
+                modifiers = modifiers,
+                delta = delta,
+            };
+
+            // IMGUI only ever sees MouseMove in a window that asked for it - that is Unity's rule for a
+            // real mouse too, and an IMGUI tool that never set the flag would silently receive nothing
+            // here. The flag is turned on for the send and put straight back, so the window keeps the
+            // setting it had; pass ensureWantsMouseMove false to send exactly what production would see.
+            var ensureWantsMouseMove = string.IsNullOrEmpty(p.ensureWantsMouseMove)
+                || ParseBool(p.ensureWantsMouseMove);
+            var hadWantsMouseMove = window.wantsMouseMove;
+            var enabledForSend = ensureWantsMouseMove && !hadWantsMouseMove;
+
+            bool sent;
+            if (enabledForSend) window.wantsMouseMove = true;
+            try
+            {
+                sent = SendEvent(window, move);
+            }
+            finally
+            {
+                if (enabledForSend) window.wantsMouseMove = hadWantsMouseMove;
+            }
+
+            PointerPositions[id] = point;
+
+            window.Repaint();
+            RepaintImmediate(window);
+
+            var events = new StringBuilder("[");
+            AppendMoveEvent(events, point, offset, delta, sent);
+            events.Append(']');
+
+            DescribeTarget(window, response);
+            if (!byElement)
+            {
+                // Element mode reports resolvedFrom itself, along with what it matched.
+                response.AddOutput("resolvedFrom", "point");
+            }
+
+            response.AddOutput("coordinateSpace", space);
+            response.AddOutput("contentOffset", F(offset.x) + "," + F(offset.y));
+            response.AddOutput("x", F(point.x));
+            response.AddOutput("y", F(point.y));
+            response.AddOutput("contentX", F(contentPoint.x));
+            response.AddOutput("contentY", F(contentPoint.y));
+            response.AddOutput("deltaX", F(delta.x));
+            response.AddOutput("deltaY", F(delta.y));
+            response.AddOutput("hadPreviousPoint", hadPrevious ? "true" : "false");
+            response.AddOutput("previousX", hadPrevious ? F(previous.x) : string.Empty);
+            response.AddOutput("previousY", hadPrevious ? F(previous.y) : string.Empty);
+            response.AddOutput("eventType", "MouseMove");
+            response.AddOutput("eventsSent", "1");
+            response.AddOutput("pressedButtons", "0");
+            response.AddOutput("modifiers", modifiers.ToString());
+            response.AddOutput("wantsMouseMove", hadWantsMouseMove ? "true" : "false");
+            response.AddOutput("wantsMouseMoveEnabledForSend", enabledForSend ? "true" : "false");
+            response.AddOutput("events", events.ToString());
+            response.AddOutput("sendEventReturned", sent ? "true" : "false");
+            // Same rule as click and drag: the return value says the event was consumed somewhere, not
+            // that the window's hover handling ran.
+            response.AddOutput("note",
+                "sendEventReturned is the raw return of EditorWindow.SendEvent, not proof the UI reacted. " +
+                "Confirm a hover with editor_window_capture right after this call, or by reading the tool's own state with editor_get_field.");
+
+            if (notes.Count > 0)
+            {
+                response.AddOutput("moveNotes", string.Join(" | ", notes.ToArray()));
+            }
+        }
+
+        private static void AppendMoveEvent(StringBuilder sb, Vector2 point, Vector2 offset, Vector2 delta, bool sent)
+        {
+            sb.Append("{\"i\":0");
+            sb.Append(",\"phase\":\"move\"");
+            sb.Append(",\"type\":\"MouseMove\"");
+            sb.Append(",\"x\":").Append(F(point.x));
+            sb.Append(",\"y\":").Append(F(point.y));
+            sb.Append(",\"contentX\":").Append(F(point.x - offset.x));
+            sb.Append(",\"contentY\":").Append(F(point.y - offset.y));
+            sb.Append(",\"deltaX\":").Append(F(delta.x));
+            sb.Append(",\"deltaY\":").Append(F(delta.y));
+            sb.Append(",\"pressedButtons\":0");
+            sb.Append(",\"sendEventReturned\":").Append(sent ? "true" : "false");
+            sb.Append('}');
+        }
+
+        /// <summary>Drops remembered positions for windows that have since been closed.</summary>
+        private static void PrunePointerPositions()
+        {
+            if (PointerPositions.Count == 0)
+            {
+                return;
+            }
+
+            var live = new HashSet<int>(AllWindows().Select(x => x.GetInstanceID()));
+            var dead = PointerPositions.Keys.Where(x => !live.Contains(x)).ToList();
+            foreach (var id in dead)
+            {
+                PointerPositions.Remove(id);
+            }
+        }
+
+        /// <summary>Forgets the remembered pointer position, so the next move starts a fresh path.</summary>
+        internal static void ForgetPointerPosition(EditorWindow window)
+        {
+            if (window != null)
+            {
+                PointerPositions.Remove(window.GetInstanceID());
+            }
+        }
+
+        // ------------------------------------------------------------------ scroll
+
+        /// <summary>
+        /// Turns the mouse wheel at a point inside a window.
+        ///
+        /// Same delivery path and coordinate rules as move and click; what differs is the event type
+        /// (ScrollWheel) and that the payload is a delta rather than a position. IMGUI reads it as
+        /// Event.current.delta on an EventType.ScrollWheel, UI Toolkit as WheelEvent.delta, so a
+        /// ScrollView, a long inspector and a GraphView's zoom all respond.
+        ///
+        /// One wheel notch is about 3 units, and positive y scrolls down - the same convention Unity's
+        /// own events use, deliberately not renormalised here.
+        /// </summary>
+        private static void Scroll(CommandParameters p, CommandResponse response)
+        {
+            var window = ResolveWindowOrThrow(p);
+            var notes = new List<string>();
+
+            if (Mathf.Approximately(p.scrollX, 0f) && Mathf.Approximately(p.scrollY, 0f))
+            {
+                throw new ArgumentException(
+                    "Provide scrollX and/or scrollY for editor_scroll. One wheel notch is about 3; positive y scrolls down.");
+            }
+
+            window.Focus();
+            RepaintImmediate(window);
+
+            Vector2 point;
+            var space = ResolvePoint(window, p, response, notes, out point);
+            var delta = new Vector2(p.scrollX, p.scrollY);
+
+            var scroll = new Event
+            {
+                type = EventType.ScrollWheel,
+                mousePosition = point,
+                delta = delta,
+                modifiers = ParseModifiers(p.modifiers),
+            };
+            var sent = SendEvent(window, scroll);
+
+            // The pointer really is at that point now, so a following move measures from here.
+            PrunePointerPositions();
+            PointerPositions[window.GetInstanceID()] = point;
+
+            window.Repaint();
+            RepaintImmediate(window);
+
+            DescribeTarget(window, response);
+            response.AddOutput("coordinateSpace", space);
+            response.AddOutput("x", F(point.x));
+            response.AddOutput("y", F(point.y));
+            response.AddOutput("scrollX", F(delta.x));
+            response.AddOutput("scrollY", F(delta.y));
+            response.AddOutput("eventType", "ScrollWheel");
+            response.AddOutput("eventsSent", "1");
+            response.AddOutput("sendEventReturned", sent ? "true" : "false");
+            response.AddOutput("note",
+                "sendEventReturned is the raw return of EditorWindow.SendEvent, not proof the view scrolled. " +
+                "Confirm with editor_window_capture or by reading the tool's own state with editor_get_field.");
+
+            if (notes.Count > 0)
+            {
+                response.AddOutput("scrollNotes", string.Join(" | ", notes.ToArray()));
+            }
+        }
+
+        // ------------------------------------------------------------------ UI Toolkit elements
+
+        /// <summary>
+        /// Finds UI Toolkit elements in a window by name, USS class, type or text, and reports where each
+        /// one actually is.
+        ///
+        /// Aiming input at a hard-coded pixel breaks the moment a window is resized or a field is added
+        /// above the target. An element's worldBound is already in the host-view space SendEvent expects,
+        /// so a query result feeds straight into click, move or scroll - and because the query reports
+        /// what it matched, a miss is visible as "no element matched" rather than as a click into empty
+        /// space that silently did nothing.
+        /// </summary>
+        private static void ElementQuery(CommandParameters p, CommandResponse response)
+        {
+            var window = ResolveWindowOrThrow(p);
+            RepaintImmediate(window);
+
+            var notes = new List<string>();
+            var border = BorderSize(window, notes);
+            var offset = border != null ? new Vector2(border.left, border.top) : Vector2.zero;
+
+            var matches = QueryElements(window, p);
+
+            var sb = new StringBuilder("[");
+            for (var i = 0; i < matches.Count; i++)
+            {
+                if (i > 0) sb.Append(',');
+                AppendElementJson(sb, matches[i], i, offset);
+            }
+
+            sb.Append(']');
+
+            DescribeTarget(window, response);
+            response.AddOutput("count", matches.Count.ToString(CultureInfo.InvariantCulture));
+            response.AddOutput("contentOffset", F(offset.x) + "," + F(offset.y));
+            response.AddOutput("elements", sb.ToString());
+            response.AddOutput("filters", DescribeElementFilters(p));
+            response.AddOutput("note",
+                "x/y/w/h and centerX/centerY are host-view coordinates: pass them to editor_click, editor_move or " +
+                "editor_scroll with coordinateSpace 'host', or use targetMode 'element' with the same filters.");
+
+            if (notes.Count > 0)
+            {
+                response.AddOutput("queryNotes", string.Join(" | ", notes.ToArray()));
+            }
+        }
+
+        private sealed class ElementMatch
+        {
+            public VisualElement element;
+            public int treeIndex;
+            public int depth;
+        }
+
+        private static List<ElementMatch> QueryElements(EditorWindow window, CommandParameters p)
+        {
+            var root = window.rootVisualElement;
+            if (root == null)
+            {
+                return new List<ElementMatch>();
+            }
+
+            var all = new List<ElementMatch>();
+            var index = 0;
+            CollectElements(root, 0, ref index, all);
+
+            return all.Where(x => MatchesElementFilters(x.element, p)).ToList();
+        }
+
+        private static void CollectElements(VisualElement element, int depth, ref int index, List<ElementMatch> into)
+        {
+            if (element == null || depth > 32 || into.Count > 2000)
+            {
+                return;
+            }
+
+            into.Add(new ElementMatch { element = element, treeIndex = index, depth = depth });
+            index++;
+
+            foreach (var child in element.Children())
+            {
+                CollectElements(child, depth + 1, ref index, into);
+            }
+        }
+
+        /// <summary>
+        /// Every filter given has to match. Name and type are exact because they identify one element;
+        /// text is a contains-match because a label's text is often decorated with counts or units.
+        /// </summary>
+        private static bool MatchesElementFilters(VisualElement element, CommandParameters p)
+        {
+            if (!string.IsNullOrEmpty(p.elementName)
+                && !string.Equals(element.name, p.elementName, StringComparison.Ordinal))
+            {
+                return false;
+            }
+
+            if (!string.IsNullOrEmpty(p.elementClass) && !element.ClassListContains(p.elementClass))
+            {
+                return false;
+            }
+
+            if (!string.IsNullOrEmpty(p.elementType))
+            {
+                var type = element.GetType();
+                if (!string.Equals(type.Name, p.elementType, StringComparison.Ordinal)
+                    && !string.Equals(type.FullName, p.elementType, StringComparison.Ordinal))
+                {
+                    return false;
+                }
+            }
+
+            if (!string.IsNullOrEmpty(p.elementText))
+            {
+                var text = element as TextElement;
+                if (text == null || text.text == null
+                    || text.text.IndexOf(p.elementText, StringComparison.OrdinalIgnoreCase) < 0)
+                {
+                    return false;
+                }
+            }
+
+            return true;
+        }
+
+        private static void AppendElementJson(StringBuilder sb, ElementMatch match, int i, Vector2 offset)
+        {
+            var element = match.element;
+            var bound = element.worldBound;
+            var text = element as TextElement;
+
+            sb.Append("{\"i\":").Append(i.ToString(CultureInfo.InvariantCulture));
+            sb.Append(",\"treeIndex\":").Append(match.treeIndex.ToString(CultureInfo.InvariantCulture));
+            sb.Append(",\"depth\":").Append(match.depth.ToString(CultureInfo.InvariantCulture));
+            sb.Append(",\"type\":\"").Append(Esc(element.GetType().Name)).Append('"');
+            sb.Append(",\"name\":\"").Append(Esc(element.name)).Append('"');
+            sb.Append(",\"classes\":\"").Append(Esc(string.Join(" ", element.GetClasses().ToArray()))).Append('"');
+            sb.Append(",\"text\":\"").Append(Esc(text != null ? text.text : string.Empty)).Append('"');
+            sb.Append(",\"x\":").Append(F(bound.x));
+            sb.Append(",\"y\":").Append(F(bound.y));
+            sb.Append(",\"w\":").Append(F(bound.width));
+            sb.Append(",\"h\":").Append(F(bound.height));
+            sb.Append(",\"centerX\":").Append(F(bound.center.x));
+            sb.Append(",\"centerY\":").Append(F(bound.center.y));
+            sb.Append(",\"contentX\":").Append(F(bound.x - offset.x));
+            sb.Append(",\"contentY\":").Append(F(bound.y - offset.y));
+            sb.Append(",\"enabled\":").Append(element.enabledInHierarchy ? "true" : "false");
+            sb.Append(",\"visible\":").Append(element.visible ? "true" : "false");
+            sb.Append(",\"pickable\":").Append(element.pickingMode == PickingMode.Position ? "true" : "false");
+            sb.Append('}');
+        }
+
+        private static string DescribeElementFilters(CommandParameters p)
+        {
+            var parts = new List<string>();
+            if (!string.IsNullOrEmpty(p.elementName)) parts.Add("name=" + p.elementName);
+            if (!string.IsNullOrEmpty(p.elementClass)) parts.Add("class=" + p.elementClass);
+            if (!string.IsNullOrEmpty(p.elementType)) parts.Add("type=" + p.elementType);
+            if (!string.IsNullOrEmpty(p.elementText)) parts.Add("text~=" + p.elementText);
+            return parts.Count > 0 ? string.Join(", ", parts.ToArray()) : "(none: every element)";
+        }
+
+        /// <summary>
+        /// The point an input command should use, in host-view space, plus the space it came from.
+        ///
+        /// Three ways in, and they are kept in one place so click, move and scroll cannot drift apart:
+        /// an element's centre (already host space), or an explicit x/y in content space (tab strip added)
+        /// or host space.
+        /// </summary>
+        private static string ResolvePoint(EditorWindow window, CommandParameters p, CommandResponse response,
+            List<string> notes, out Vector2 point)
+        {
+            if (string.Equals(p.targetMode, "element", StringComparison.OrdinalIgnoreCase))
+            {
+                point = ResolveElementPoint(window, p, response);
+                return "host";
+            }
+
+            var space = string.IsNullOrEmpty(p.coordinateSpace)
+                ? "content"
+                : p.coordinateSpace.Trim().ToLowerInvariant();
+            if (space != "content" && space != "host")
+            {
+                throw new ArgumentException("coordinateSpace must be 'content' (default) or 'host'.");
+            }
+
+            var border = BorderSize(window, notes);
+            var offset = border != null ? new Vector2(border.left, border.top) : Vector2.zero;
+            point = space == "content" ? new Vector2(p.x, p.y) + offset : new Vector2(p.x, p.y);
+            response.AddOutput("resolvedFrom", "point");
+            response.AddOutput("contentOffset", F(offset.x) + "," + F(offset.y));
+            return space;
+        }
+
+        private static Vector2 ResolveElementPoint(EditorWindow window, CommandParameters p, CommandResponse response)
+        {
+            var matches = QueryElements(window, p);
+            if (matches.Count == 0)
+            {
+                throw new InvalidOperationException(
+                    $"No UI Toolkit element matched ({DescribeElementFilters(p)}) in {window.GetType().FullName}. " +
+                    "List what is there with editor_element_query.");
+            }
+
+            var index = Mathf.Clamp(p.elementIndex, 0, matches.Count - 1);
+            if (p.elementIndex >= matches.Count)
+            {
+                throw new ArgumentException(
+                    $"elementIndex {p.elementIndex} is out of range: {matches.Count} element(s) matched ({DescribeElementFilters(p)}).");
+            }
+
+            var match = matches[index];
+            var bound = match.element.worldBound;
+            if (bound.width <= 0f || bound.height <= 0f)
+            {
+                throw new InvalidOperationException(
+                    $"The matched element ({DescribeElementFilters(p)}) has no size ({RectJson(bound)}), so there is nothing to aim at. " +
+                    "It may be hidden or not laid out yet.");
+            }
+
+            response.AddOutput("resolvedFrom", "element");
+            response.AddOutput("elementIndex", index.ToString(CultureInfo.InvariantCulture));
+            response.AddOutput("elementMatchCount", matches.Count.ToString(CultureInfo.InvariantCulture));
+            response.AddOutput("elementType", match.element.GetType().Name);
+            response.AddOutput("elementName", match.element.name ?? string.Empty);
+            response.AddOutput("elementRect", RectJson(bound));
+            return bound.center;
+        }
+
+        // ------------------------------------------------------------------ selection
+
+        private static void SelectionGet(CommandResponse response)
+        {
+            var objects = Selection.objects ?? Array.Empty<Object>();
+            var sb = new StringBuilder("[");
+            for (var i = 0; i < objects.Length; i++)
+            {
+                if (i > 0) sb.Append(',');
+                AppendSelectedObject(sb, objects[i]);
+            }
+
+            sb.Append(']');
+
+            response.AddOutput("count", objects.Length.ToString(CultureInfo.InvariantCulture));
+            response.AddOutput("objects", sb.ToString());
+            response.AddOutput("activeObject", Selection.activeObject != null ? Selection.activeObject.name : string.Empty);
+            response.AddOutput("activeInstanceId", Selection.activeInstanceID.ToString(CultureInfo.InvariantCulture));
+            response.AddOutput("activeAssetPath", Selection.activeObject != null
+                ? AssetDatabase.GetAssetPath(Selection.activeObject)
+                : string.Empty);
+        }
+
+        /// <summary>
+        /// Selects assets or scene objects, which is how an inspector-driven tool is put in front of the
+        /// thing it should operate on before its buttons are clicked.
+        /// </summary>
+        private static void SelectionSet(CommandParameters p, CommandResponse response)
+        {
+            var selected = new List<Object>();
+            var missing = new List<string>();
+
+            if (p.instanceId != 0)
+            {
+                var byId = EditorUtility.InstanceIDToObject(p.instanceId);
+                if (byId != null) selected.Add(byId);
+                else missing.Add("instanceId " + p.instanceId.ToString(CultureInfo.InvariantCulture));
+            }
+
+            foreach (var path in SplitPaths(p.assetPaths))
+            {
+                var asset = AssetDatabase.LoadAssetAtPath<Object>(path);
+                if (asset != null) selected.Add(asset);
+                else missing.Add(path);
+            }
+
+            Selection.objects = selected.ToArray();
+
+            response.AddOutput("requested", (selected.Count + missing.Count).ToString(CultureInfo.InvariantCulture));
+            response.AddOutput("selected", selected.Count.ToString(CultureInfo.InvariantCulture));
+            response.AddOutput("selectedNames", string.Join(", ", selected.Select(x => x.name).ToArray()));
+            response.AddOutput("cleared", selected.Count == 0 ? "true" : "false");
+
+            if (missing.Count > 0)
+            {
+                // Selecting only some of what was asked for would look like success from the outside.
+                throw new InvalidOperationException(
+                    "Could not resolve: " + string.Join(", ", missing.ToArray())
+                    + ". Asset paths are project-relative, e.g. 'Assets/Prefabs/Hero.prefab'."
+                    + $" {selected.Count} of {selected.Count + missing.Count} were selected.");
+            }
+        }
+
+        internal static IEnumerable<string> SplitPaths(string value)
+        {
+            if (string.IsNullOrEmpty(value))
+            {
+                return Array.Empty<string>();
+            }
+
+            // Unit Separator first, matching methodArgs, so a path containing a comma still survives.
+            var separators = value.IndexOf('\u001F') >= 0
+                ? new[] { '\u001F' }
+                : new[] { ',', '\n', '\r' };
+            return value.Split(separators, StringSplitOptions.RemoveEmptyEntries)
+                .Select(x => x.Trim())
+                .Where(x => x.Length > 0);
+        }
+
+        private static void AppendSelectedObject(StringBuilder sb, Object obj)
+        {
+            if (obj == null)
+            {
+                sb.Append("null");
+                return;
+            }
+
+            sb.Append("{\"name\":\"").Append(Esc(obj.name)).Append('"');
+            sb.Append(",\"type\":\"").Append(Esc(obj.GetType().Name)).Append('"');
+            sb.Append(",\"instanceId\":").Append(obj.GetInstanceID().ToString(CultureInfo.InvariantCulture));
+            sb.Append(",\"assetPath\":\"").Append(Esc(AssetDatabase.GetAssetPath(obj))).Append("\"}");
         }
 
         // ------------------------------------------------------------------ menus

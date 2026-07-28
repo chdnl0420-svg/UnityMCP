@@ -21484,8 +21484,29 @@ var JSON_OUTPUT_KEYS = /* @__PURE__ */ new Set([
   "entryRect",
   "focusedWindow",
   "events",
-  "frames"
+  "frames",
+  "elements",
+  "elementRect",
+  "messages",
+  "assemblies",
+  "objects"
 ]);
+var elementShape = {
+  elementName: external_exports.string().optional().describe('Exact VisualElement name (the "name" field, not the type).'),
+  elementClass: external_exports.string().optional().describe("USS class the element carries."),
+  elementType: external_exports.string().optional().describe('Element type name, e.g. "Button", "Toggle", "ListView".'),
+  elementText: external_exports.string().optional().describe("Text the element contains, case-insensitive substring."),
+  elementIndex: external_exports.number().int().min(0).optional().describe("Which match to use when several match (default 0).")
+};
+function elementParameters(params) {
+  return {
+    elementName: params.elementName,
+    elementClass: params.elementClass,
+    elementType: params.elementType,
+    elementText: params.elementText,
+    elementIndex: params.elementIndex ?? 0
+  };
+}
 function registerEditorTools(server2) {
   server2.tool(
     "unity_editor_window_list",
@@ -21657,6 +21678,148 @@ function registerEditorTools(server2) {
     }
   );
   server2.tool(
+    "unity_editor_move",
+    "Moves the mouse pointer inside an editor window with no button held, so hover behaviour actually runs. unity_editor_drag cannot test hover: its moves are MouseDrag events, which reach UI Toolkit as a MouseMoveEvent with pressedButtons set, so anything that only reacts to a bare cursor - GraphView highlighting the edge under the mouse, a hover tooltip, a rollover tint - never fires. This sends a single MouseMove with pressedButtons 0, and no MouseDown, MouseDrag or MouseUp, so it cannot move a node, change the selection, start a marquee, pan or open a context menu. Consecutive calls on the same window carry the delta from the previous point, and each window keeps its own. The response reports what was sent, not that the UI reacted: confirm the hover with unity_editor_window_capture right after, or by reading the tool's state with unity_editor_get_field.",
+    {
+      ...commonShape,
+      ...windowShape,
+      ...elementShape,
+      targetMode: external_exports.enum(["point", "element"]).optional().describe('"point" (default) uses x/y; "element" hovers the centre of the UI Toolkit element matching the element filters, which survives a resize.'),
+      x: external_exports.number().optional().describe('Pointer x, in window-local coordinates. Required unless targetMode is "element".'),
+      y: external_exports.number().optional().describe('Pointer y, in window-local coordinates. Required unless targetMode is "element".'),
+      coordinateSpace: external_exports.enum(["content", "host"]).optional().describe(`Same convention as unity_editor_drag: "content" (default) treats 0,0 as the window's content corner and adds the dock tab strip offset automatically; "host" sends raw host-view coordinates, matching unity_editor_click.`),
+      modifiers: external_exports.string().optional().describe("Comma separated: shift, control, alt, command."),
+      ensureWantsMouseMove: external_exports.boolean().optional().describe("Turn EditorWindow.wantsMouseMove on for the send and put it straight back (default true). IMGUI code only receives EventType.MouseMove in a window that set this flag - that is Unity's rule for a real mouse too - so an IMGUI tool that never set it would see nothing. Pass false to send exactly what production would see. UI Toolkit is unaffected either way.")
+    },
+    async (params) => toToolResult(await runBridge(params, "editor_move", {
+      targetMode: params.targetMode ?? "point",
+      x: params.x,
+      y: params.y,
+      coordinateSpace: params.coordinateSpace ?? "content",
+      modifiers: params.modifiers,
+      ensureWantsMouseMove: params.ensureWantsMouseMove ?? true ? "true" : "false",
+      ...elementParameters(params)
+    }))
+  );
+  server2.tool(
+    "unity_editor_scroll",
+    `Turns the mouse wheel at a point inside an editor window, so a ScrollView, a long inspector or a GraphView zoom actually moves. One notch is about 3 and positive y scrolls down, matching Unity's own event convention. Coordinates follow unity_editor_drag, or aim at a named UI Toolkit element with targetMode "element".`,
+    {
+      ...commonShape,
+      ...windowShape,
+      ...elementShape,
+      scrollX: external_exports.number().optional().describe("Horizontal wheel delta."),
+      scrollY: external_exports.number().optional().describe("Vertical wheel delta. About 3 per notch, positive scrolls down."),
+      targetMode: external_exports.enum(["point", "element"]).optional(),
+      x: external_exports.number().optional(),
+      y: external_exports.number().optional(),
+      coordinateSpace: external_exports.enum(["content", "host"]).optional(),
+      modifiers: external_exports.string().optional().describe("Comma separated: shift, control, alt, command.")
+    },
+    async (params) => toToolResult(await runBridge(params, "editor_scroll", {
+      targetMode: params.targetMode ?? "point",
+      x: params.x ?? 0,
+      y: params.y ?? 0,
+      scrollX: params.scrollX ?? 0,
+      scrollY: params.scrollY ?? 0,
+      coordinateSpace: params.coordinateSpace ?? "content",
+      modifiers: params.modifiers,
+      ...elementParameters(params)
+    }))
+  );
+  server2.tool(
+    "unity_editor_element_query",
+    'Finds UI Toolkit elements in an editor window by name, USS class, type or text, and returns where each one is on screen. Use this instead of guessing pixels: the returned centerX/centerY are host-view coordinates that feed straight into unity_editor_click, unity_editor_move or unity_editor_scroll with coordinateSpace "host" - or skip the copy and pass the same filters with targetMode "element". Each hit reports type, name, classes, text, rect, enabled, visible and pickable, so a click that would land on a disabled or zero-sized element is visible before it is sent.',
+    { ...commonShape, ...windowShape, ...elementShape },
+    async (params) => toToolResult(await runBridge(params, "editor_element_query", elementParameters(params)))
+  );
+  server2.tool(
+    "unity_editor_selection_get",
+    "Reads the current editor selection: every selected object with its name, type, instance id and asset path, plus the active object.",
+    { ...commonShape },
+    async (params) => toToolResult(await runBridge(params, "editor_selection_get", {}))
+  );
+  server2.tool(
+    "unity_editor_selection_set",
+    "Selects assets or scene objects, which is how an inspector-driven tool is put in front of the thing it should act on before its buttons are clicked. Pass project-relative asset paths and/or one instance id. Passing neither clears the selection. Fails if any path cannot be resolved, rather than silently selecting a subset.",
+    {
+      ...commonShape,
+      assetPaths: external_exports.array(external_exports.string()).optional().describe('Project-relative paths, e.g. ["Assets/Prefabs/Hero.prefab"].'),
+      instanceId: external_exports.number().int().optional().describe("Instance id of a scene object or asset.")
+    },
+    async (params) => toToolResult(await runBridge(params, "editor_selection_set", {
+      // Unit Separator, so a path containing a comma survives the trip.
+      assetPaths: (params.assetPaths ?? []).join("")
+    }))
+  );
+  server2.tool(
+    "unity_editor_refresh",
+    `Reimports changed assets and recompiles scripts in the open editor, then reports the compiler's own verdict. This is a real compile gate: errorCount comes from Unity's CompilerMessages, so "0 errors" means the assemblies built. By default it waits for compilation to finish (polling across the domain reload that a recompile triggers) and returns the errors and warnings with file and line. Set waitForCompile false to fire and forget, then poll unity_editor_compile_status yourself.`,
+    {
+      ...commonShape,
+      forceRecompile: external_exports.boolean().optional().describe("Also request a script recompilation even when no asset changed. Off by default."),
+      waitForCompile: external_exports.boolean().optional().describe("Wait until compilation finishes (default true)."),
+      waitTimeoutMs: external_exports.number().int().min(1e3).max(30 * 60 * 1e3).optional().describe("How long to wait for compilation (default 300000).")
+    },
+    async (params) => {
+      const requested = await runBridge(params, "editor_refresh", {
+        forceRecompile: params.forceRecompile ?? false ? "true" : "false"
+      });
+      if (!requested.success || (params.waitForCompile ?? true) === false) {
+        return toToolResult(requested);
+      }
+      const status = await waitForCompile(params, params.waitTimeoutMs ?? 3e5);
+      return toToolResult({
+        ...requested,
+        outputs: { ...requested.outputs, compile: status.outputs, compileWaitTimedOut: status.timedOut },
+        // An editor that came back with compile errors is not a successful refresh from the caller's side.
+        success: requested.success && !status.timedOut && Number(status.outputs?.errorCount ?? 0) === 0
+      });
+    }
+  );
+  server2.tool(
+    "unity_editor_compile_status",
+    "Reads the last compilation result recorded in the editor: status, whether it is compiling right now, error and warning counts, the assemblies that rebuilt, and each compiler message with file, line and column. The result is stored on disk by the package, so it survives the domain reload a recompile causes.",
+    { ...commonShape },
+    async (params) => toToolResult(await runBridge(params, "editor_compile_status", {}))
+  );
+  server2.tool(
+    "unity_editor_wait_for_field",
+    "Polls one field on an editor tool window until it reaches the expected value, or the timeout runs out. Use this instead of a fixed sleep after triggering slow work: it returns as soon as the value lands, and reports the last value it saw when it does not. The editor is never blocked - the polling happens on this side.",
+    {
+      ...commonShape,
+      ...windowShape,
+      fieldPath: external_exports.string().describe('Dotted/indexed path, e.g. "_isBuilding" or "_results[0].state".'),
+      expected: external_exports.string().describe("Value to wait for, compared as text."),
+      comparison: external_exports.enum(["equals", "contains", "notEquals"]).optional().describe("How to compare (default equals)."),
+      pollIntervalMs: external_exports.number().int().min(100).max(1e4).optional().describe("Gap between reads (default 500)."),
+      waitTimeoutMs: external_exports.number().int().min(1e3).max(30 * 60 * 1e3).optional().describe("Give up after this long (default 60000).")
+    },
+    async (params) => {
+      const interval = params.pollIntervalMs ?? 500;
+      const deadline = Date.now() + (params.waitTimeoutMs ?? 6e4);
+      const comparison = params.comparison ?? "equals";
+      let attempts = 0;
+      let last;
+      while (Date.now() < deadline) {
+        attempts++;
+        last = await runBridge(params, "editor_get_field", { fieldPath: params.fieldPath, maxDepth: 0 });
+        const value = String(last.outputs?.value ?? "");
+        const matched = comparison === "equals" ? value === params.expected : comparison === "contains" ? value.includes(params.expected) : value !== params.expected;
+        if (matched) {
+          return toToolResult({ ...last, outputs: { ...last.outputs, matched: true, attempts, waitedMs: void 0 } });
+        }
+        await new Promise((resolve) => setTimeout(resolve, interval));
+      }
+      return toToolResult({
+        ...last ?? {},
+        success: false,
+        outputs: { ...last?.outputs ?? {}, matched: false, attempts, expected: params.expected, comparison },
+        error: { message: `Field ${params.fieldPath} did not reach "${params.expected}" within the timeout. Last value: "${last?.outputs?.value ?? "(never read)"}"` }
+      });
+    }
+  );
+  server2.tool(
     "unity_editor_get_field",
     'Reads one field or property on an editor tool window by path, e.g. "_inputName" or "_resolutions[0].width".',
     {
@@ -21705,7 +21868,8 @@ function registerEditorTools(server2) {
     {
       ...commonShape,
       ...windowShape,
-      targetMode: external_exports.enum(["point", "entry"]).optional().describe(`"point" (default) uses x/y; "entry" uses entryIndex from the dump's layout array.`),
+      ...elementShape,
+      targetMode: external_exports.enum(["point", "entry", "element"]).optional().describe(`"point" (default) uses x/y; "entry" uses entryIndex from the dump's layout array; "element" clicks the centre of the UI Toolkit element matching the element filters.`),
       x: external_exports.number().optional(),
       y: external_exports.number().optional(),
       entryIndex: external_exports.number().int().min(0).optional().describe('Index "i" of a layout entry from unity_editor_window_dump.'),
@@ -21720,7 +21884,8 @@ function registerEditorTools(server2) {
       entryIndex: params.entryIndex ?? 0,
       button: params.button ?? 0,
       clickCount: params.clickCount ?? 1,
-      modifiers: params.modifiers
+      modifiers: params.modifiers,
+      ...elementParameters(params)
     }))
   );
   server2.tool(
@@ -21865,6 +22030,28 @@ function dragParameters(params) {
     modifiers: params.modifiers,
     noFocus: params.noFocus ?? false
   };
+}
+async function waitForCompile(params, timeoutMs) {
+  const deadline = Date.now() + timeoutMs;
+  let started = false;
+  let last;
+  while (Date.now() < deadline) {
+    try {
+      last = await runBridge({ ...params, timeoutMs: 15e3 }, "editor_compile_status", {});
+      const status = String(last.outputs?.status ?? "");
+      const compiling = String(last.outputs?.isCompiling ?? "") === "true";
+      if (compiling || status === "compiling") {
+        started = true;
+      } else if (status === "finished" || status === "idle" || status === "failed") {
+        if (started || status !== "idle" || Date.now() > deadline - timeoutMs + 4e3) {
+          return { outputs: last.outputs, timedOut: false };
+        }
+      }
+    } catch {
+    }
+    await new Promise((resolve) => setTimeout(resolve, 1e3));
+  }
+  return { outputs: last?.outputs ?? {}, timedOut: true };
 }
 async function runBridge(params, command, extra) {
   const config2 = resolveProjectConfig(params);
