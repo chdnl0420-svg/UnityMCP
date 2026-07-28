@@ -312,6 +312,16 @@ namespace ProjectMQaMcp.Editor.Tests
 
         private MoveProbeWindow OpenDockedProbe()
         {
+            // GetWindow hands back any live instance of the type, including a floating one somebody left
+            // open - and then nothing docks and the tab-strip assertions below test nothing. So the
+            // field is cleared first, which makes the test independent of what was on screen.
+            foreach (var stale in Resources.FindObjectsOfTypeAll<MoveProbeWindow>())
+            {
+                EditorToolBridge.ForgetPointerPosition(stale);
+                _opened.Remove(stale);
+                stale.Close();
+            }
+
             // The console is the dock host the probe asks for, so it has to exist first - and it is
             // closed again in teardown if this test is what opened it, rather than leaving the user's
             // layout changed.
