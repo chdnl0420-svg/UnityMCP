@@ -61,6 +61,10 @@ namespace ProjectMQaMcp.Editor
         [SerializeField] private Vector3 _panPosition;
         [SerializeField] private int _contextClickCount;
         [SerializeField] private int _contextMenuCount;
+        [SerializeField] private int _graphContextMenuCount;
+        [SerializeField] private string _graphContextMenuItems = string.Empty;
+        [SerializeField] private int _menuAreaMenuCount;
+        [SerializeField] private int _menuAreaPressCount;
 
         // --- geometry, so a caller can aim without guessing -------------------------------------
         [SerializeField] private Vector2 _hoverCenterHost;
@@ -69,6 +73,7 @@ namespace ProjectMQaMcp.Editor
         [SerializeField] private Rect _hoverAreaWorldBound;
 
         private VisualElement _hoverArea;
+        private VisualElement _menuArea;
         private Label _readout;
         private ProbeGraphView _graph;
         private Node _node;
@@ -138,7 +143,24 @@ namespace ProjectMQaMcp.Editor
             _hoverArea.RegisterCallback<WheelEvent>(OnWheel);
             root.Add(_hoverArea);
 
-            _graph = new ProbeGraphView();
+            // A contextual menu that deliberately stays empty. It proves the whole chain a right-click
+            // depends on - ContextClick arrives, the menu manager runs, the builder is called - without
+            // ever displaying anything, because Unity skips the display for a menu with no items. That
+            // matters: a menu that does display blocks the main thread until it is dismissed, so it
+            // cannot be exercised from an automated run, while this can.
+            _menuArea = new VisualElement { name = "menu-area" };
+            _menuArea.style.height = 28f;
+            _menuArea.style.flexShrink = 0f;
+            _menuArea.AddManipulator(new ContextualMenuManipulator(_ => _menuAreaMenuCount++));
+            // Its own press counters, so "no menu was built" can be told apart from "the click missed".
+            _menuArea.RegisterCallback<MouseDownEvent>(_ => _menuAreaPressCount++);
+            _menuArea.RegisterCallback<MouseUpEvent>(_ => _menuAreaPressCount++);
+            root.Add(_menuArea);
+
+            // The GraphView takes the same BuildContextualMenu override a real graph tool writes, so the
+            // one path editor_context_click exists for is reachable here rather than only in a project's
+            // own window.
+            _graph = new ProbeGraphView(OnGraphContextMenu) { name = "graph-area" };
             _graph.style.height = GraphHeight;
             _graph.style.flexShrink = 0f;
             _node = CreateNode("Node", new Vector2(40f, 24f));
@@ -150,7 +172,7 @@ namespace ProjectMQaMcp.Editor
             root.RegisterCallback<ContextClickEvent>(_ => _contextClickCount++);
             root.RegisterCallback<ContextualMenuPopulateEvent>(_ => _contextMenuCount++);
 
-            var strip = new IMGUIContainer(DrawImguiStrip);
+            var strip = new IMGUIContainer(DrawImguiStrip) { name = "imgui-strip" };
             strip.style.height = ImguiStripHeight;
             strip.style.flexShrink = 0f;
             root.Add(strip);
@@ -225,6 +247,25 @@ namespace ProjectMQaMcp.Editor
             _lastWheelDelta = evt.delta;
             Record(evt);
             UpdateReadout();
+        }
+
+        /// <summary>
+        /// Runs from the GraphView's BuildContextualMenu override - the callback a right-click is
+        /// ultimately for, and the one a MouseDown/MouseUp pair alone never reaches.
+        ///
+        /// It records the items the menu ended up with as well as the count, because an empty menu is
+        /// built and then displayed as nothing at all, which from the outside looks exactly like a menu
+        /// that was never built.
+        /// </summary>
+        private void OnGraphContextMenu(ContextualMenuPopulateEvent evt)
+        {
+            _graphContextMenuCount++;
+            _graphContextMenuItems = evt.menu != null
+                ? string.Join(",", evt.menu.MenuItems()
+                    .OfType<DropdownMenuAction>()
+                    .Select(x => x.name)
+                    .ToArray())
+                : string.Empty;
         }
 
         private void Record(EventBase evt)
@@ -378,6 +419,10 @@ namespace ProjectMQaMcp.Editor
             _repaintCount = 0;
             _contextClickCount = 0;
             _contextMenuCount = 0;
+            _graphContextMenuCount = 0;
+            _graphContextMenuItems = string.Empty;
+            _menuAreaMenuCount = 0;
+            _menuAreaPressCount = 0;
             UpdateReadout();
             Repaint();
         }
@@ -408,6 +453,12 @@ namespace ProjectMQaMcp.Editor
         public Vector2 ImguiLastMoveDelta { get { return _imguiLastMoveDelta; } }
         public int ContextClickCount { get { return _contextClickCount; } }
         public int ContextMenuCount { get { return _contextMenuCount; } }
+        /// <summary>How many times the GraphView's own BuildContextualMenu override actually ran.</summary>
+        public int GraphContextMenuCount { get { return _graphContextMenuCount; } }
+        public string GraphContextMenuItems { get { return _graphContextMenuItems; } }
+        /// <summary>Builds of the empty menu on `menu-area` - reached without any popup being shown.</summary>
+        public int MenuAreaMenuCount { get { return _menuAreaMenuCount; } }
+        public int MenuAreaPressCount { get { return _menuAreaPressCount; } }
         /// <summary>
         /// Where the window's content starts inside the host view - the dock tab strip on a docked
         /// window, zero on a floating one. Read from the layout rather than from the bridge, so a test
@@ -447,13 +498,33 @@ namespace ProjectMQaMcp.Editor
 
         private sealed class ProbeGraphView : GraphView
         {
-            public ProbeGraphView()
+            private readonly System.Action<ContextualMenuPopulateEvent> _onBuildContextualMenu;
+
+            public ProbeGraphView(System.Action<ContextualMenuPopulateEvent> onBuildContextualMenu)
             {
+                _onBuildContextualMenu = onBuildContextualMenu;
+
                 Insert(0, new GridBackground());
                 this.AddManipulator(new ContentZoomer());
                 this.AddManipulator(new ContentDragger());
                 this.AddManipulator(new SelectionDragger());
                 this.AddManipulator(new RectangleSelector());
+            }
+
+            /// <summary>
+            /// The hook every GraphView-based tool overrides, reached only once a ContextClick has been
+            /// delivered. An item is always appended so the menu is never empty: an empty menu is built
+            /// and then shows nothing, so it would be indistinguishable from no menu at all.
+            /// </summary>
+            public override void BuildContextualMenu(ContextualMenuPopulateEvent evt)
+            {
+                base.BuildContextualMenu(evt);
+                evt.menu.AppendAction("MCP Probe Item", _ => { }, DropdownMenuAction.AlwaysEnabled);
+
+                if (_onBuildContextualMenu != null)
+                {
+                    _onBuildContextualMenu(evt);
+                }
             }
 
             public override List<Port> GetCompatiblePorts(Port startPort, NodeAdapter nodeAdapter)
