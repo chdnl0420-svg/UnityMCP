@@ -77,6 +77,7 @@ Commands:
 | `editor_get_field` / `editor_set_field` | Read/write by dotted+indexed path, e.g. `_resolutions[0].name` |
 | `editor_invoke_method` | Call a method on the window instance (escape hatch) |
 | `editor_click` | Inject a click at a point, or at a layout entry index |
+| `editor_context_click` | Right-click that opens a context menu: the press pair plus `EventType.ContextClick` |
 | `editor_key` | Type text, or press a named key |
 | `editor_menu_execute` / `editor_menu_list` | Run a `[MenuItem]`, or discover its exact path |
 | `editor_console_read` / `editor_console_clear` | Console entries and error/warning counts |
@@ -204,6 +205,95 @@ position, selection and pan that a move must leave untouched. `Tests/Editor/Edit
 all of it, docked and floating, and that `editor_window_capture` still works right after a move. Package
 tests need the project to list the package under `testables` in `Packages/manifest.json`.
 
+### A context menu needs a third event: `editor_context_click`
+
+`editor_click` with `button: 1` delivers the button faithfully — a `MouseDown`/`MouseUp` pair a window
+records as a right-button press. What it never delivers is `EventType.ContextClick`. Measured on
+2022.3.62, Windows, against `MoveProbeWindow`:
+
+| Path | Right `editor_click` | `editor_context_click` |
+|---|---|---|
+| UI Toolkit `ContextualMenuManipulator` | **already worked** | works |
+| GraphView `BuildContextualMenu` | **already worked** | works |
+| IMGUI `GenericMenu` on `EventType.ContextClick` | **never fired** | works |
+
+The two UI Toolkit rows are the surprise, and they are worth stating plainly because the obvious story
+says otherwise: on Windows a `ContextualMenuManipulator` listens on `MouseUpEvent`, so the pair
+`editor_click` already sent is enough to run a GraphView's `BuildContextualMenu` and display its menu.
+If a GraphView tool is not showing a menu on a right `editor_click`, the cause is more likely the click
+missing its target — `editor_click` reads x/y as **host-view** coordinates, so a content-space number on
+a docked window lands high by the tab strip — or a `BuildContextualMenu` that appends no items for that
+target, since Unity displays nothing for an empty menu.
+
+The real gap is IMGUI. `OnGUI` code builds a `GenericMenu` by testing
+`Event.current.type == EventType.ContextClick`, and no such event ever arrived, so that branch was dead.
+Unity's native input layer synthesises it for a real right-click — which is why the same click sent with
+Win32 `mouse_event` behaves differently — and `EditorWindow.SendEvent` performs no such synthesis.
+`editor_context_click` sends it, which reaches IMGUI menu code and makes the injected gesture what a
+real right-click is rather than only what UI Toolkit happens to accept.
+
+Three events go out, in this order:
+
+| # | Event | Why it is there |
+|---|---|---|
+| 1 | `MouseDown`, button 1 | A menu is a gesture. Handlers that track which button is down, dismiss an already-open popup, or take the menu's anchor from the press need to see it start |
+| 2 | `MouseUp`, button 1 | Closes the press, and is itself the trigger for a `ContextualMenuManipulator` on some paths |
+| 3 | `ContextClick` | The event that actually opens the menu, carrying the same `mousePosition` — which is also where the menu is placed |
+
+| Parameter | Meaning |
+|---|---|
+| `windowType` / `windowTitle` / `instanceId` | Target window, resolved exactly as `editor_click` resolves it |
+| `targetMode` | `point` (default), `entry` with `entryIndex`, or `element` with the element filters |
+| `x`, `y` | Point to right-click |
+| `coordinateSpace` | `host` (default, as for clicks) or `content` — see below |
+| `elementName` / `elementClass` / `elementType` / `elementText` / `elementIndex` | Element filters, identical to `editor_element_query` |
+| `modifiers` | `shift`, `control`, `alt`, `command`, comma separated |
+
+There is no `button` and no `clickCount`: a context click is one right-button gesture by definition, and
+any other button would produce a click that opens nothing.
+
+Targeting runs through the **same resolver `editor_click` uses**, so an element, an `entryIndex` or an
+x/y means the same pixel in both commands — a right-click can aim at exactly what a left click just hit,
+and neither command can drift from the other as one of them changes. That also fixes the coordinate
+convention to click's: **`x`/`y` are host-view by default**, the space `editor_element_query` reports,
+*not* the content-corner default that `editor_drag`, `editor_move` and `editor_scroll` use. Pass
+`coordinateSpace: "content"` for that convention, and the dock tab strip is added the way it is there.
+
+The response carries `targetWindowType`/`targetWindowTitle`/`targetInstanceId`, the resolved `x`/`y`
+with whatever the target mode reported (`resolvedFrom`, plus `entryRect`/`containerOffset` or
+`elementName`/`elementRect`/`elementMatchCount`, or `coordinateSpace`/`contentOffset`), `button` (`1`),
+`clickCount` (`1`), `modifiers`, `eventsSent` (`3`), `eventOrder`, and the three raw returns
+`mouseDownReturned`, `mouseUpReturned` and `contextClickReturned`.
+
+Those returns are raw `EditorWindow.SendEvent` values, and are **not** proof a menu opened — the same
+caveat as `editor_click`, `editor_drag` and `editor_move`. Confirm with `editor_window_capture`, or with
+`editor_element_query` against the popup's own elements. One case is worth knowing because it is
+indistinguishable from failure at this level: a menu whose `BuildContextualMenu` appends **no items** is
+built and then displays nothing at all, so a right-click on a GraphView's empty canvas can legitimately
+produce no visible menu.
+
+`Window/NX3 MCP/Move Probe` is the target built for checking this. Its GraphView (`graph-area`) carries
+a `BuildContextualMenu` override that always appends an item, so it opens a real menu;
+`_graphContextMenuCount` and `_graphContextMenuItems` record that the override ran and with what,
+`_contextClickCount` and `_contextMenuCount` record the `ContextClickEvent` and the
+`ContextualMenuPopulateEvent` on the root, and `_imguiContextClickCount` records the raw
+`EventType.ContextClick` on the IMGUI side — all readable with `editor_get_field`.
+
+`Tests/Editor/EditorContextClickTests.cs` asserts the sequence, the IMGUI before/after that is the
+command's actual justification, that `editor_click` with button 1 still produces no `ContextClick`, and
+that both commands resolve the same element to the same pixel. It aims at `hover-area`, `menu-area` and
+`imgui-strip` rather than at `graph-area`, because those build an empty menu that Unity never displays —
+no popup is left on screen, and nothing blocks.
+
+**A menu that displays blocks the editor.** Unity shows it from inside `SendEvent`, so the main thread —
+and this bridge with it — is held until the menu is dismissed. The same click on the probe's GraphView
+was measured at 4s, 24s and 123s, differing only in how long the menu stayed up; unattended, nothing
+dismisses it. `contextClickBlockedMs` reports the wait. The practical consequences: no other bridge
+command can run while a menu is up, so the popup **cannot** be inspected with `editor_element_query` or
+`editor_window_capture` while it is open — confirm instead by reading the tool's own state afterwards
+with `editor_get_field`, which is what the probe's `_graphContextMenuCount` and `_graphContextMenuItems`
+are for.
+
 ### Aiming at elements instead of pixels: `editor_element_query`
 
 A hard-coded coordinate breaks the moment a window is resized or a field is added above the target.
@@ -211,9 +301,10 @@ A hard-coded coordinate breaks the moment a window is resized or a field is adde
 `elementText` (every filter given must match; text is a case-insensitive substring) and reports each
 hit's `type`, `name`, `classes`, `text`, rect, `centerX`/`centerY`, `enabled`, `visible` and
 `pickable`. Those coordinates are host-view space, so they go straight into `editor_click`,
-`editor_move` or `editor_scroll` with `coordinateSpace: "host"`.
+`editor_context_click`, `editor_move` or `editor_scroll` — the click commands read x/y that way by
+default, the other two need `coordinateSpace: "host"`.
 
-Or skip the copying: those three commands accept `targetMode: "element"` with the same filters and aim
+Or skip the copying: those four commands accept `targetMode: "element"` with the same filters and aim
 at the matched element's centre themselves. No match, several matches with an out-of-range
 `elementIndex`, or an element with no size each fail with what was asked for and what was there —
 never as a click into empty space that silently did nothing.

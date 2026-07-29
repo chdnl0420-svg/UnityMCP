@@ -21498,6 +21498,7 @@ var elementShape = {
   elementText: external_exports.string().optional().describe("Text the element contains, case-insensitive substring."),
   elementIndex: external_exports.number().int().min(0).optional().describe("Which match to use when several match (default 0).")
 };
+var clickCoordinateSpaceSchema = external_exports.enum(["host", "content"]).optional().describe(`"host" (default for clicks) sends raw host-view coordinates, the space unity_editor_element_query reports; "content" treats 0,0 as the window's content corner and adds the dock tab strip offset, matching unity_editor_drag and unity_editor_move.`);
 function elementParameters(params) {
   return {
     elementName: params.elementName,
@@ -21872,6 +21873,7 @@ function registerEditorTools(server2) {
       targetMode: external_exports.enum(["point", "entry", "element"]).optional().describe(`"point" (default) uses x/y; "entry" uses entryIndex from the dump's layout array; "element" clicks the centre of the UI Toolkit element matching the element filters.`),
       x: external_exports.number().optional(),
       y: external_exports.number().optional(),
+      coordinateSpace: clickCoordinateSpaceSchema,
       entryIndex: external_exports.number().int().min(0).optional().describe('Index "i" of a layout entry from unity_editor_window_dump.'),
       button: external_exports.number().int().min(0).max(2).optional(),
       clickCount: external_exports.number().int().min(1).max(3).optional(),
@@ -21881,9 +21883,36 @@ function registerEditorTools(server2) {
       targetMode: params.targetMode ?? "point",
       x: params.x ?? 0,
       y: params.y ?? 0,
+      coordinateSpace: params.coordinateSpace,
       entryIndex: params.entryIndex ?? 0,
       button: params.button ?? 0,
       clickCount: params.clickCount ?? 1,
+      modifiers: params.modifiers,
+      ...elementParameters(params)
+    }))
+  );
+  server2.tool(
+    "unity_editor_context_click",
+    "Right-clicks inside an editor tool window so a context menu actually opens: it injects MouseDown and MouseUp with the right button and then the EventType.ContextClick that Unity opens menus from, which unity_editor_click with button 1 never sends. This is what reaches a GraphView's BuildContextualMenu, an IMGUI GenericMenu and a UI Toolkit ContextualMenuManipulator. Targets a point, a layout entry or a UI Toolkit element, exactly as unity_editor_click does.",
+    {
+      ...commonShape,
+      ...windowShape,
+      ...elementShape,
+      targetMode: external_exports.enum(["point", "entry", "element"]).optional().describe(`"point" (default) uses x/y; "entry" uses entryIndex from the dump's layout array; "element" right-clicks the centre of the UI Toolkit element matching the element filters.`),
+      x: external_exports.number().optional(),
+      y: external_exports.number().optional(),
+      coordinateSpace: clickCoordinateSpaceSchema,
+      entryIndex: external_exports.number().int().min(0).optional().describe('Index "i" of a layout entry from unity_editor_window_dump.'),
+      modifiers: external_exports.string().optional().describe("Comma separated: shift, control, alt, command.")
+    },
+    // No button or clickCount: a context click is one right-button gesture by definition, so letting a
+    // caller pick another button would only ever produce a click that opens nothing.
+    async (params) => toToolResult(await runBridge(params, "editor_context_click", {
+      targetMode: params.targetMode ?? "point",
+      x: params.x ?? 0,
+      y: params.y ?? 0,
+      coordinateSpace: params.coordinateSpace,
+      entryIndex: params.entryIndex ?? 0,
       modifiers: params.modifiers,
       ...elementParameters(params)
     }))

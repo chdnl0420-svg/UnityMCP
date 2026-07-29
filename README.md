@@ -119,12 +119,68 @@ lists the package under `testables` in `Packages/manifest.json`:
 { "testables": ["com.nx3games.unity-mcp"] }
 ```
 
+### Opening a context menu: `unity_editor_context_click`
+
+What `unity_editor_click` with `button: 1` misses is one event, not the button. Measured on 2022.3.62,
+Windows, against `MoveProbeWindow`:
+
+| Path | Right `unity_editor_click` | `unity_editor_context_click` |
+|---|---|---|
+| UI Toolkit `ContextualMenuManipulator` | **already worked** — it listens on `MouseUpEvent` | works |
+| GraphView `BuildContextualMenu` | **already worked** — same manipulator path | works |
+| IMGUI `GenericMenu` on `EventType.ContextClick` | **never fired** | works |
+
+So the gap is IMGUI: `OnGUI` code builds its menu by testing `Event.current.type` against
+`EventType.ContextClick`, and `unity_editor_click` delivers no such event, leaving that branch dead.
+Unity's native input layer synthesises `ContextClick` for a real right-click; `EditorWindow.SendEvent`
+does not, so the bridge sends it itself — which reaches IMGUI menu code and makes the gesture what a
+real right-click is, rather than only what UI Toolkit happens to accept.
+
+`unity_editor_context_click` sends three events in order — `MouseDown` (button 1), `MouseUp` (button 1),
+then `ContextClick` at the same point — and reports `mouseDownReturned`, `mouseUpReturned` and
+`contextClickReturned` separately. The press pair still goes first because a menu is a gesture, not a
+lone event: handlers that track which button is down, dismiss an open popup, or take the menu's anchor
+from the press would otherwise see a `ContextClick` arrive out of nowhere.
+
+```jsonc
+// right-click a GraphView, then check what opened
+{ "tool": "unity_editor_context_click",
+  "arguments": { "windowType": "MoveProbeWindow", "targetMode": "element", "elementName": "graph-area" } }
+{ "tool": "unity_editor_window_capture",
+  "arguments": { "windowType": "MoveProbeWindow", "outputPath": "C:/tmp/menu.png" } }
+```
+
+Targeting is the same resolver `unity_editor_click` uses — a point, an `entryIndex`, or `targetMode:
+"element"` with the element filters — so a right-click can aim at exactly the pixel a left click just
+hit. Coordinates therefore follow **click**, not drag: `x`/`y` are host-view by default, the space
+`unity_editor_element_query` reports. Pass `coordinateSpace: "content"` for the content-corner
+convention `unity_editor_drag` and `unity_editor_move` default to. There is no `button` or `clickCount`
+parameter, because a context click is one right-button gesture by definition.
+
+The three `*Returned` values are raw `SendEvent` returns, not proof a menu opened — the same caveat as
+click, drag and move. One case looks identical from the outside and is worth knowing: a menu whose
+`BuildContextualMenu` appends **no items** is built and then displays nothing at all.
+
+**A menu that does display blocks the editor until it is dismissed.** Unity shows it from inside
+`SendEvent`, so the main thread and this bridge are held for the duration — 4s, 24s and 123s measured
+for the same click, differing only in how long the menu stayed up. `contextClickBlockedMs` reports it.
+Because nothing else can run meanwhile, the popup cannot be inspected while it is up; confirm the menu
+afterwards by reading the tool's own state with `unity_editor_get_field`.
+
+`Window/NX3 MCP/Move Probe` carries a GraphView with a `BuildContextualMenu` override that always
+appends an item, named `graph-area`, alongside `hover-area` and `imgui-strip`; `_graphContextMenuCount`
+and `_contextMenuCount` are readable with `unity_editor_get_field`.
+`Tests/Editor/EditorContextClickTests.cs` asserts the event sequence, and deliberately aims away from
+the GraphView so no popup is left on screen mid-run.
+
 ### Aiming, scrolling, selecting, compiling
 
 - `unity_editor_element_query` finds UI Toolkit elements by name, USS class, type or text and returns
   where each one is, with `enabled`, `visible` and `pickable`. `unity_editor_click`,
   `unity_editor_move` and `unity_editor_scroll` take the same filters with `targetMode: "element"`, so
   input can aim at "the button named Build" instead of a pixel that a resize invalidates.
+- `unity_editor_context_click` opens a context menu, which `unity_editor_click` with `button: 1` never
+  did — see below.
 - `unity_editor_scroll` turns the wheel at a point: ScrollViews, long inspectors and GraphView zoom.
 - `unity_editor_selection_get` / `unity_editor_selection_set` read and set the editor selection, which
   is how an inspector-driven tool is put in front of the asset it should act on.

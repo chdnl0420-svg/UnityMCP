@@ -33,7 +33,7 @@ namespace ProjectMQaMcp.Editor
     /// </summary>
     internal static class EditorToolBridge
     {
-        internal const string BridgeVersion = "0.4.4";
+        internal const string BridgeVersion = "0.4.5";
 
         private const int DefaultMaxDepth = 1;
         private const int ValuePreviewLimit = 400;
@@ -58,6 +58,7 @@ namespace ProjectMQaMcp.Editor
             "editor_get_field",
             "editor_invoke_method",
             "editor_click",
+            "editor_context_click",
             "editor_key",
             "editor_menu_execute",
             "editor_menu_list",
@@ -91,6 +92,7 @@ namespace ProjectMQaMcp.Editor
                 case "editor_get_field": GetField(p, response); return true;
                 case "editor_invoke_method": InvokeMethod(p, response); return true;
                 case "editor_click": Click(p, response); return true;
+                case "editor_context_click": ContextClick(p, response); return true;
                 case "editor_key": Key(p, response); return true;
                 case "editor_menu_execute": MenuExecute(p, response); return true;
                 case "editor_menu_list": MenuList(p, response); return true;
@@ -627,41 +629,82 @@ namespace ProjectMQaMcp.Editor
 
         // ------------------------------------------------------------------ input injection
 
-        private static void Click(CommandParameters p, CommandResponse response)
+        /// <summary>The right button, which is what "context click" means everywhere in the editor.</summary>
+        private const int RightButton = 1;
+
+        /// <summary>
+        /// The pixel a click lands on, in the host-view space SendEvent delivers into.
+        ///
+        /// editor_click and editor_context_click share this so the two cannot drift apart: the same
+        /// entry index, the same element filters and the same x/y aim at the same pixel in both, and
+        /// only the events sent afterwards differ.
+        ///
+        /// Explicit coordinates default to host-view space here, not to content space - that is what
+        /// editor_click's x/y has always meant, and what editor_element_query hands back. The drag,
+        /// move and scroll commands default the other way; pass coordinateSpace "content" to measure
+        /// from the window's content corner and have the dock tab strip added, as they do.
+        /// </summary>
+        private static Vector2 ResolveClickPoint(EditorWindow window, CommandParameters p,
+            CommandResponse response, List<string> notes)
         {
-            var window = ResolveWindowOrThrow(p);
-
-            // Layout rects only exist once a pass has run, so refresh before resolving an entry index.
-            RepaintImmediate(window);
-
-            Vector2 point;
             if (string.Equals(p.targetMode, "entry", StringComparison.OrdinalIgnoreCase))
             {
                 Vector2 containerOffset;
                 var rect = ResolveLayoutRect(window, p.entryIndex, out containerOffset);
 
-                // Layout rects are local to the IMGUIContainer; SendEvent lands in the host view's
-                // space, which also contains the tab strip. Without the offset the click misses high.
-                point = new Vector2(
-                    containerOffset.x + rect.x + rect.width * 0.5f,
-                    containerOffset.y + rect.y + rect.height * 0.5f);
-
                 response.AddOutput("resolvedFrom", "layoutEntry");
                 response.AddOutput("entryIndex", p.entryIndex.ToString(CultureInfo.InvariantCulture));
                 response.AddOutput("entryRect", RectJson(rect));
                 response.AddOutput("containerOffset", F(containerOffset.x) + "," + F(containerOffset.y));
+
+                // Layout rects are local to the IMGUIContainer; SendEvent lands in the host view's
+                // space, which also contains the tab strip. Without the offset the click misses high.
+                return new Vector2(
+                    containerOffset.x + rect.x + rect.width * 0.5f,
+                    containerOffset.y + rect.y + rect.height * 0.5f);
             }
-            else if (string.Equals(p.targetMode, "element", StringComparison.OrdinalIgnoreCase))
+
+            if (string.Equals(p.targetMode, "element", StringComparison.OrdinalIgnoreCase))
             {
                 // A UI Toolkit element's worldBound is already in the space SendEvent delivers into, so
                 // its centre needs no offset - and it survives a resize, unlike a hard-coded pixel.
-                point = ResolveElementPoint(window, p, response);
+                return ResolveElementPoint(window, p, response);
             }
-            else
+
+            var space = string.IsNullOrEmpty(p.coordinateSpace)
+                ? "host"
+                : p.coordinateSpace.Trim().ToLowerInvariant();
+            if (space != "content" && space != "host")
             {
-                point = new Vector2(p.x, p.y);
-                response.AddOutput("resolvedFrom", "point");
+                throw new ArgumentException(
+                    "coordinateSpace must be 'host' (the default for clicks) or 'content'.");
             }
+
+            var offset = Vector2.zero;
+            if (space == "content")
+            {
+                var border = BorderSize(window, notes);
+                if (border != null)
+                {
+                    offset = new Vector2(border.left, border.top);
+                }
+            }
+
+            response.AddOutput("resolvedFrom", "point");
+            response.AddOutput("coordinateSpace", space);
+            response.AddOutput("contentOffset", F(offset.x) + "," + F(offset.y));
+            return new Vector2(p.x, p.y) + offset;
+        }
+
+        private static void Click(CommandParameters p, CommandResponse response)
+        {
+            var window = ResolveWindowOrThrow(p);
+            var notes = new List<string>();
+
+            // Layout rects only exist once a pass has run, so refresh before resolving an entry index.
+            RepaintImmediate(window);
+
+            var point = ResolveClickPoint(window, p, response, notes);
 
             var modifiers = ParseModifiers(p.modifiers);
             var button = p.button;
@@ -702,6 +745,119 @@ namespace ProjectMQaMcp.Editor
             response.AddOutput("mouseDownReturned", downHandled ? "true" : "false");
             response.AddOutput("mouseUpReturned", upHandled ? "true" : "false");
             response.AddOutput("clicked", "true");
+
+            if (notes.Count > 0)
+            {
+                response.AddOutput("clickNotes", string.Join(" | ", notes.ToArray()));
+            }
+        }
+
+        /// <summary>
+        /// Opens a context menu at a point, the way a real right-click does.
+        ///
+        /// What editor_click with button 1 misses is one event, not the button. Measured on 2022.3.62,
+        /// Windows, against MoveProbeWindow:
+        ///
+        ///   - UI Toolkit already worked. A ContextualMenuManipulator listens on MouseUpEvent on this
+        ///     platform, so the pair editor_click sends is enough - a right editor_click on the probe's
+        ///     GraphView runs BuildContextualMenu and displays the menu.
+        ///   - IMGUI never fired. OnGUI code builds a GenericMenu by testing Event.current.type against
+        ///     EventType.ContextClick, and editor_click delivers no such event, so that branch is dead.
+        ///
+        /// Unity's native input layer synthesises ContextClick for a real right-click;
+        /// EditorWindow.SendEvent does not. So this command sends it, which both reaches IMGUI menu code
+        /// and makes the gesture what a real right-click is rather than what UI Toolkit alone accepts.
+        ///
+        /// The press pair still goes first, and in that order, because a context menu is a gesture
+        /// rather than a lone event: handlers that track which button is down, dismiss an already-open
+        /// popup, or take the menu's anchor from the press would otherwise see a ContextClick arrive
+        /// out of nowhere - and on the UI Toolkit path that pair is what opens the menu at all.
+        /// </summary>
+        private static void ContextClick(CommandParameters p, CommandResponse response)
+        {
+            var window = ResolveWindowOrThrow(p);
+            var notes = new List<string>();
+
+            // Layout rects only exist once a pass has run, so refresh before resolving an entry index.
+            RepaintImmediate(window);
+
+            // Deliberately the same resolver editor_click uses: a right-click has to be able to aim at
+            // exactly the pixel a left-click aimed at, or the two commands describe different targets.
+            var point = ResolveClickPoint(window, p, response, notes);
+            var modifiers = ParseModifiers(p.modifiers);
+
+            window.Focus();
+
+            var down = new Event
+            {
+                type = EventType.MouseDown,
+                mousePosition = point,
+                button = RightButton,
+                clickCount = 1,
+                modifiers = modifiers,
+            };
+            var downHandled = SendEvent(window, down);
+
+            var up = new Event
+            {
+                type = EventType.MouseUp,
+                mousePosition = point,
+                button = RightButton,
+                clickCount = 1,
+                modifiers = modifiers,
+            };
+            var upHandled = SendEvent(window, up);
+
+            // The event that actually opens the menu, and the one whose position the menu is placed at -
+            // so it carries the resolved point rather than wherever the pointer happens to be.
+            var contextClick = new Event
+            {
+                type = EventType.ContextClick,
+                mousePosition = point,
+                button = RightButton,
+                clickCount = 1,
+                modifiers = modifiers,
+            };
+
+            // Timed, because a menu that really displays does not return until it is dismissed: Unity
+            // shows it from inside this call, and the editor's main thread - the bridge included - is
+            // held for that whole time. Measured here at 4s, 24s and 123s for the same click, the
+            // difference being only how long the menu happened to stay up. Reporting the number is what
+            // turns "the command was slow" into "a menu was open for 24 seconds".
+            var startedTicks = DateTime.UtcNow.Ticks;
+            var contextClickHandled = SendEvent(window, contextClick);
+            var blockedMs = (DateTime.UtcNow.Ticks - startedTicks) / TimeSpan.TicksPerMillisecond;
+
+            window.Repaint();
+            RepaintImmediate(window);
+
+            DescribeTarget(window, response);
+            response.AddOutput("x", F(point.x));
+            response.AddOutput("y", F(point.y));
+            response.AddOutput("button", RightButton.ToString(CultureInfo.InvariantCulture));
+            response.AddOutput("clickCount", "1");
+            response.AddOutput("modifiers", modifiers.ToString());
+            response.AddOutput("eventsSent", "3");
+            response.AddOutput("eventOrder", "MouseDown,MouseUp,ContextClick");
+            // Reported the same way editor_click reports its pair: these are the raw SendEvent returns,
+            // and a right-click that genuinely opened a menu can still come back false.
+            response.AddOutput("mouseDownReturned", downHandled ? "true" : "false");
+            response.AddOutput("mouseUpReturned", upHandled ? "true" : "false");
+            response.AddOutput("contextClickReturned", contextClickHandled ? "true" : "false");
+            response.AddOutput("contextClickBlockedMs", blockedMs.ToString(CultureInfo.InvariantCulture));
+            response.AddOutput("contextClicked", "true");
+            response.AddOutput("note",
+                "The *Returned values are raw returns of EditorWindow.SendEvent, not proof a menu opened. " +
+                "Confirm by reading the tool's own state with editor_get_field. A menu with no items builds " +
+                "and displays nothing, which looks identical from here. A large contextClickBlockedMs means a " +
+                "menu really did display: Unity shows it from inside this call and holds the editor's main " +
+                "thread - and therefore this bridge - until it is dismissed, so no other command can run, and " +
+                "the popup cannot be inspected while it is up.");
+
+            if (notes.Count > 0)
+            {
+                response.AddOutput("contextClickNotes", string.Join(" | ", notes.ToArray()));
+            }
         }
 
         private static void Key(CommandParameters p, CommandResponse response)
