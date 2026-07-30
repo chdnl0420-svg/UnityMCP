@@ -432,3 +432,14 @@ the `ping` response instead: it comes from the code that is really loaded.
 `bridgeVersion` is a constant in `EditorToolBridge`, deliberately separate from `package.json` so it can
 be bumped mid-session to prove a recompile actually landed. Keep the two in step when releasing, or the
 version a caller reads will not match the version the package claims.
+
+`ping`/`editor_status` report **two** versions, and they answer different questions:
+
+| Key | Type | Question it answers |
+|---|---|---|
+| `bridgeVersion` | string, e.g. `0.4.5` | Which build is loaded? Is my package pin live yet? |
+| `bridgeProtocolVersion` | int, currently `10` | Which commands does this bridge understand? |
+
+Gate on `bridgeProtocolVersion` when a caller needs a command to exist, and read `bridgeVersion` when it
+needs to know which checkout is running. They were briefly emitted under one key, which the Node side
+folds last-wins, so the protocol number was silently unreachable — hence the split.

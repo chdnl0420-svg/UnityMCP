@@ -19,7 +19,9 @@ namespace ProjectMQaMcp.Editor
         private const string LogPrefix = "[ProjectMQaMcp]";
         // Monotonic sentinel: bump on every deploy so callers can verify a re-resolved
         // package actually loaded the new bridge code (absence->presence is unambiguous).
-        private const int BridgeProtocolVersion = 9;
+        // 10: both command families in one bridge (runtime/NGUI + EditorToolBridge), and the
+        // protocol version moved off the "bridgeVersion" key, which now carries build identity.
+        private const int BridgeProtocolVersion = 10;
         private const double PollIntervalSeconds = 0.1;
         private const float FallbackClickMaxNormalizedDistanceSqr = 0.18f;
         private const int FallbackClickMinSharedHierarchy = 3;
@@ -291,16 +293,20 @@ namespace ProjectMQaMcp.Editor
 
         private static void AddEditorStatus(CommandResponse response)
         {
-            response.AddOutput("bridgeVersion", BridgeProtocolVersion.ToString());
+            // Two different versions, under two different keys on purpose. Outputs travel as a list of
+            // pairs that the Node side folds into an object last-wins, so putting both under one key
+            // silently hands the caller whichever line happens to run second.
+
+            // Capability gate: which commands this bridge understands.
+            response.AddOutput("bridgeProtocolVersion", BridgeProtocolVersion.ToString());
+            // Build identity: how a caller tells whether the package pin it just changed actually took
+            // effect, since manifest.json can say one commit while UPM still runs an older checkout.
+            response.AddOutput("bridgeVersion", EditorToolBridge.BridgeVersion);
+
             response.AddOutput("projectPath", Application.dataPath.Replace("/Assets", ""));
             response.AddOutput("unityVersion", Application.unityVersion);
             response.AddOutput("isBatchMode", Application.isBatchMode.ToString());
-            response.AddOutput("isPlaying", Application.isPlaying.ToString());
             response.AddOutput("activeScene", EditorSceneManager.GetActiveScene().path);
-
-            // bridgeVersion is how a caller tells whether the package pin it just changed actually took
-            // effect: manifest.json can say one commit while UPM is still running an older checkout.
-            response.AddOutput("bridgeVersion", EditorToolBridge.BridgeVersion);
             response.AddOutput("isPlaying", EditorApplication.isPlaying.ToString());
             response.AddOutput("isCompiling", EditorApplication.isCompiling.ToString());
             response.AddOutput("commands", string.Join(",", SupportedCommands()));
