@@ -268,6 +268,23 @@ namespace ProjectMQaMcp.Editor
                     ImportAsset(parameters, response);
                     break;
                 default:
+                    // Editor-tool and test-runner commands live in their own files; the runtime NGUI
+                    // commands above stay untouched so existing callers keep working unchanged.
+                    if (EditorToolBridge.TryExecute(request.command, parameters, response))
+                    {
+                        break;
+                    }
+
+                    if (TestRunnerBridge.TryExecute(request.command, parameters, response))
+                    {
+                        break;
+                    }
+
+                    if (CompileBridge.TryExecute(request.command, parameters, response))
+                    {
+                        break;
+                    }
+
                     throw new NotSupportedException($"Unsupported command: {request.command}");
             }
         }
@@ -280,6 +297,28 @@ namespace ProjectMQaMcp.Editor
             response.AddOutput("isBatchMode", Application.isBatchMode.ToString());
             response.AddOutput("isPlaying", Application.isPlaying.ToString());
             response.AddOutput("activeScene", EditorSceneManager.GetActiveScene().path);
+
+            // bridgeVersion is how a caller tells whether the package pin it just changed actually took
+            // effect: manifest.json can say one commit while UPM is still running an older checkout.
+            response.AddOutput("bridgeVersion", EditorToolBridge.BridgeVersion);
+            response.AddOutput("isPlaying", EditorApplication.isPlaying.ToString());
+            response.AddOutput("isCompiling", EditorApplication.isCompiling.ToString());
+            response.AddOutput("commands", string.Join(",", SupportedCommands()));
+        }
+
+        private static IEnumerable<string> SupportedCommands()
+        {
+            var builtIn = new[]
+            {
+                "ping", "editor_status", "capture_screenshot", "capture_game_view",
+                "start_frame_capture", "stop_frame_capture", "open_scene", "load_prefab",
+                "find_ngui_object", "click_ngui_object",
+            };
+
+            return builtIn
+                .Concat(EditorToolBridge.SupportedCommands)
+                .Concat(TestRunnerBridge.SupportedCommands)
+                .Concat(CompileBridge.SupportedCommands);
         }
 
         private static void BatchExecute(CommandParameters parameters, CommandResponse response)
@@ -2649,7 +2688,7 @@ namespace ProjectMQaMcp.Editor
             return value;
         }
 
-        private static string GetCommandRoot()
+        internal static string GetCommandRoot()
         {
             var fromEnv = Environment.GetEnvironmentVariable("PROJECTM_COMMAND_ROOT");
             if (!string.IsNullOrEmpty(fromEnv))
@@ -2758,6 +2797,86 @@ namespace ProjectMQaMcp.Editor
         public string assetPath;
         public bool forceUpdate;
         public bool importRecursive;
+
+        // --- editor tool (EditorWindow) automation ---
+        // JsonUtility only fills flat public fields, so every parameter the editor commands accept has to
+        // be declared here rather than passed as a free-form dictionary.
+        public string windowType;
+        public string windowTitle;
+        public int instanceId;
+        public string menuPath;
+        public bool utility;
+        public bool noFocus;
+        public bool publicOnly;
+
+        public string fieldPath;
+        public string fieldValue;
+
+        public string targetMode;
+        public int entryIndex;
+        // The point for editor_click and editor_move is the x/y pair declared above.
+        public int button;
+        public int clickCount;
+        public string modifiers;
+        public string keyCode;
+
+        public string filter;
+        public int maxEntries;
+        public bool noFlipY;
+        public float originX;
+        public float originY;
+
+        // --- per-window pixel capture (editor_window_capture / editor_drag_capture) ---
+        public string captureBackend;
+        public bool includeChrome;
+        public int captureSettleMs;
+        public bool allowUniform;
+
+        // --- drag (editor_drag / editor_drag_capture). The to/from target is toX/toY above. ---
+        public float fromX;
+        public float fromY;
+        public int durationMs;
+        public int moveStepCount;
+        // Shared with editor_move, which uses the same content/host convention as the drag commands.
+        public string coordinateSpace;
+        // Text rather than bool because the default is true and JsonUtility cannot tell "absent" from "false".
+        public string captureEveryMove;
+
+        // --- UI Toolkit element targeting (editor_element_query, targetMode "element") ---
+        public string elementName;
+        public string elementClass;
+        public string elementType;
+        public string elementText;
+        public int elementIndex;
+
+        // --- scroll (editor_scroll) ---
+        public float scrollX;
+        public float scrollY;
+
+        // --- hover (editor_move). Text, because the useful default is true and JsonUtility cannot
+        // tell "absent" from "false". ---
+        public string ensureWantsMouseMove;
+
+        // --- refresh/compile (editor_refresh) ---
+        // Text rather than bool for the same reason captureEveryMove is: JsonUtility cannot express "absent".
+        public string forceRecompile;
+
+        // --- selection (editor_selection_set) ---
+        public string assetPaths;
+
+        public string prefKey;
+        public string prefStore;
+        public string prefType;
+        public string playModeAction;
+
+        // --- test runner ---
+        public string testMode;
+        public string testFilter;
+        public string assemblyNames;
+        public string categoryNames;
+        public string runId;
+        public bool refresh;
+
         public List<BatchCommand> commands;
     }
 

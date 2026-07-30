@@ -1,7 +1,9 @@
 {
   "name": "ProjectMQaMcp.Editor",
   "rootNamespace": "ProjectMQaMcp.Editor",
-  "references": [],
+  "references": [
+    "UnityEditor.TestRunner"
+  ],
   "includePlatforms": [
     "Editor"
   ],
@@ -11,6 +13,12 @@
   "precompiledReferences": [],
   "autoReferenced": true,
   "defineConstraints": [],
-  "versionDefines": [],
+  "versionDefines": [
+    {
+      "name": "com.unity.test-framework",
+      "expression": "1.1.0",
+      "define": "PROJECTM_TEST_FRAMEWORK"
+    }
+  ],
   "noEngineReferences": false
 }
