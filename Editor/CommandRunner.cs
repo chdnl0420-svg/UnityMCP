@@ -2811,6 +2811,9 @@ namespace ProjectMQaMcp.Editor
 
         public string fieldPath;
         public string fieldValue;
+        // editor_invoke_method sends its arguments as one Unit-Separator-joined string.
+        // Kept separate from methodArgs, which invoke_static_method fills as a real list.
+        public string methodArgsText;
 
         public string targetMode;
         public int entryIndex;

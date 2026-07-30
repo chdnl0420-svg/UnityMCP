@@ -458,7 +458,7 @@ export function registerEditorTools(server: McpServer): void {
     async (params) => toToolResult(await runBridge(params, 'editor_invoke_method', {
       methodName: params.methodName,
       // Unit Separator keeps arguments intact when one of them contains a comma.
-      methodArgs: (params.methodArgs ?? []).join('\u001F'),
+      methodArgsText: (params.methodArgs ?? []).join('\u001F'),
     })));
 
   // ---------------------------------------------------------------- input

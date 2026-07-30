@@ -382,7 +382,9 @@ namespace ProjectMQaMcp.Editor
         {
             var window = ResolveWindowOrThrow(p);
             var name = Require(p.methodName, "methodName");
-            var args = SplitArgs(p.methodArgs);
+            // methodArgsText, not methodArgs: this bridge takes the arguments as one
+            // Unit-Separator-joined string, while invoke_static_method takes a real list.
+            var args = SplitArgs(p.methodArgsText);
 
             var flags = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
             MethodInfo method = null;
