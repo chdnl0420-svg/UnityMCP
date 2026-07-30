@@ -21936,109 +21936,6 @@ function finishFailure(result, startedAt, now, message) {
   return result;
 }
 
-// src/recompile.ts
-async function recompileAndWait(options) {
-  const now = options.now ?? (() => Date.now());
-  const delay2 = options.delay ?? ((ms) => new Promise((resolve) => setTimeout(resolve, ms)));
-  const pollIntervalMs = options.pollIntervalMs ?? 750;
-  const commandTimeoutMs = options.commandTimeoutMs ?? 15e3;
-  const settleConfirm = options.settleConfirm ?? 2;
-  const command = options.refresh ? "refresh_assets" : "recompile_scripts";
-  const startedAt = now();
-  const triggerResponse = await options.execute(command, {}, commandTimeoutMs);
-  if (!triggerResponse.success) {
-    return {
-      success: false,
-      command,
-      triggered: false,
-      sawCompiling: false,
-      isCompiling: void 0,
-      isUpdating: void 0,
-      compileErrorCount: 0,
-      compileErrors: [],
-      elapsedMs: now() - startedAt,
-      polls: 0,
-      timedOut: false,
-      triggerResponse,
-      error: {
-        message: triggerResponse.error?.message ?? `${command} failed`
-      }
-    };
-  }
-  let polls = 0;
-  let sawBusy = false;
-  let idleConfirms = 0;
-  let lastStatus;
-  await delay2(pollIntervalMs);
-  while (now() - startedAt < options.timeoutMs) {
-    const status = await options.execute("compile_status", {}, commandTimeoutMs);
-    polls += 1;
-    if (!status.success) {
-      sawBusy = true;
-      idleConfirms = 0;
-      await delay2(pollIntervalMs);
-      continue;
-    }
-    lastStatus = status;
-    const isCompiling = readBooleanOutput(status.outputs, "isCompiling");
-    const isUpdating = readBooleanOutput(status.outputs, "isUpdating");
-    const busy = isCompiling === true || isUpdating === true;
-    if (busy) {
-      sawBusy = true;
-      idleConfirms = 0;
-      await delay2(pollIntervalMs);
-      continue;
-    }
-    idleConfirms += 1;
-    if (sawBusy || idleConfirms >= settleConfirm) {
-      const errors2 = readCompileErrors(status.outputs);
-      return {
-        success: true,
-        command,
-        triggered: true,
-        sawCompiling: sawBusy,
-        isCompiling,
-        isUpdating,
-        compileErrorCount: errors2.length,
-        compileErrors: errors2,
-        elapsedMs: now() - startedAt,
-        polls,
-        timedOut: false,
-        triggerResponse,
-        lastStatus
-      };
-    }
-    await delay2(pollIntervalMs);
-  }
-  const errors = lastStatus ? readCompileErrors(lastStatus.outputs) : [];
-  return {
-    success: false,
-    command,
-    triggered: true,
-    sawCompiling: sawBusy,
-    isCompiling: lastStatus ? readBooleanOutput(lastStatus.outputs, "isCompiling") : void 0,
-    isUpdating: lastStatus ? readBooleanOutput(lastStatus.outputs, "isUpdating") : void 0,
-    compileErrorCount: errors.length,
-    compileErrors: errors,
-    elapsedMs: now() - startedAt,
-    polls,
-    timedOut: true,
-    triggerResponse,
-    lastStatus,
-    error: {
-      message: `Timed out waiting for compilation to settle after ${options.timeoutMs}ms`
-    }
-  };
-}
-function readCompileErrors(outputs) {
-  const map = normalizeOutputs(outputs);
-  const raw = map["compileErrors"];
-  if (typeof raw !== "string" || raw.length === 0) {
-    return [];
-  }
-  return raw.split("\n").map((line) => line.trim()).filter((line) => line.length > 0);
-}
-
 // src/editorTools.ts
 import { join as join5 } from "node:path";
 var baseConfigShape = {
@@ -22447,7 +22344,7 @@ function registerEditorTools(server2) {
     async (params) => toToolResult(await runBridge(params, "editor_invoke_method", {
       methodName: params.methodName,
       // Unit Separator keeps arguments intact when one of them contains a comma.
-      methodArgs: (params.methodArgs ?? []).join("")
+      methodArgsText: (params.methodArgs ?? []).join("")
     }))
   );
   server2.tool(
@@ -22862,29 +22759,6 @@ function registerTools(server2) {
     kill: external_exports.boolean().optional(),
     includeUnity: external_exports.boolean().optional()
   }, async (params) => toToolResult2(await unityKillStale(params)));
-  server2.tool("unity_recompile", "Recompiles scripts (or refreshes assets), waits for the domain reload to settle, and reports compile errors. Use after editing C# code.", {
-    ...baseConfigShape2,
-    refresh: external_exports.boolean().optional(),
-    timeoutMs: timeoutSchema2,
-    pollIntervalMs: external_exports.number().int().positive().max(1e4).optional()
-  }, async (params) => toToolResult2(await unityRecompile(params)));
-  server2.tool("unity_compile_status", "Reports whether Unity is compiling/updating and lists buffered compile errors from the last compilation.", {
-    ...baseConfigShape2,
-    timeoutMs: timeoutSchema2
-  }, async (params) => toToolResult2(await unitySimpleCommand(params, "compile_status", {})));
-  server2.tool("unity_get_console_logs", "Reads the Unity Editor console (error/warning/log) for QA evidence and compile-error inspection.", {
-    ...baseConfigShape2,
-    logType: external_exports.enum(["all", "error", "warning", "log"]).optional(),
-    maxCount: external_exports.number().int().positive().max(1e3).optional(),
-    timeoutMs: timeoutSchema2
-  }, async (params) => toToolResult2(await unitySimpleCommand(params, "get_console_logs", {
-    logType: params.logType,
-    maxCount: params.maxCount
-  })));
-  server2.tool("unity_clear_console", "Clears the Unity Editor console so the next QA step starts from a clean log.", {
-    ...baseConfigShape2,
-    timeoutMs: timeoutSchema2
-  }, async (params) => toToolResult2(await unitySimpleCommand(params, "clear_console", {})));
   server2.tool("unity_inspect_object", "Inspects a GameObject by hierarchy path or name: components, active state, transform, NGUI label/sprite/input, and collider bounds.", {
     ...baseConfigShape2,
     targetPath: external_exports.string().optional(),
@@ -22991,13 +22865,6 @@ function registerTools(server2) {
     componentName: params.componentName,
     includeInactive: params.includeInactive ?? false
   })));
-  server2.tool("unity_execute_menu_item", 'Executes a Unity Editor menu item by path (e.g. "Assets/Refresh", "Tools/AssetBundle/Build"). Use to open a tool window or trigger a menu-driven action.', {
-    ...baseConfigShape2,
-    menuItemPath: external_exports.string().min(1),
-    timeoutMs: timeoutSchema2
-  }, async (params) => toToolResult2(await unitySimpleCommand(params, "execute_menu_item", {
-    menuItemPath: params.menuItemPath
-  })));
   server2.tool("unity_invoke_static_method", 'Reflection-invokes a public or non-public static C# method with string arguments (converted to each parameter type). The key tool for QAing editor tools headlessly: call the underlying logic directly instead of clicking a modal dialog. Example: typeName "MyTool.EditorBuild", methodName "Run", methodArgs ["2"].', {
     ...baseConfigShape2,
     typeName: external_exports.string().min(1),
@@ -23008,43 +22875,6 @@ function registerTools(server2) {
     typeName: params.typeName,
     methodName: params.methodName,
     methodArgs: params.methodArgs ?? []
-  })));
-  server2.tool("unity_list_editor_windows", "Lists all currently open EditorWindows (type, title, rect, focus). Use to verify a tool window actually opened.", {
-    ...baseConfigShape2,
-    timeoutMs: timeoutSchema2
-  }, async (params) => toToolResult2(await unitySimpleCommand(params, "list_editor_windows", {})));
-  server2.tool("unity_get_editor_window_info", "Returns info (title, rect, focus) for an open EditorWindow matched by full or simple type name.", {
-    ...baseConfigShape2,
-    typeName: external_exports.string().min(1),
-    timeoutMs: timeoutSchema2
-  }, async (params) => toToolResult2(await unitySimpleCommand(params, "get_editor_window_info", {
-    typeName: params.typeName
-  })));
-  server2.tool("unity_capture_editor_window", "Captures a screenshot of an Editor tool window (not the game camera) by reading its desktop screen region. Use to see a tool UI that the game-view screenshot cannot show.", {
-    ...baseConfigShape2,
-    typeName: external_exports.string().min(1),
-    outputPath: external_exports.string().optional(),
-    timeoutMs: timeoutSchema2
-  }, async (params) => toToolResult2(await unityCaptureEditorWindow(params)));
-  server2.tool("unity_get_editor_prefs", "Reads an EditorPrefs value by key and type (string|int|float|bool). Editor tools often gate behavior on EditorPrefs.", {
-    ...baseConfigShape2,
-    key: external_exports.string().min(1),
-    type: external_exports.enum(["string", "int", "float", "bool"]).optional(),
-    timeoutMs: timeoutSchema2
-  }, async (params) => toToolResult2(await unitySimpleCommand(params, "get_editor_prefs", {
-    prefsKey: params.key,
-    prefsType: params.type ?? "string"
-  })));
-  server2.tool("unity_set_editor_prefs", "Writes an EditorPrefs value by key and type (string|int|float|bool). Use to put an editor tool into a specific test state before driving it.", {
-    ...baseConfigShape2,
-    key: external_exports.string().min(1),
-    value: external_exports.string(),
-    type: external_exports.enum(["string", "int", "float", "bool"]).optional(),
-    timeoutMs: timeoutSchema2
-  }, async (params) => toToolResult2(await unitySimpleCommand(params, "set_editor_prefs", {
-    prefsKey: params.key,
-    prefsValue: params.value,
-    prefsType: params.type ?? "string"
   })));
   server2.tool("unity_get_asset_guid", 'Returns the GUID and main asset type for a project-relative asset path (e.g. "Assets/Foo.prefab"). Empty guid means the asset does not exist.', {
     ...baseConfigShape2,
@@ -23382,47 +23212,6 @@ async function unityKillStale(params) {
     success: true,
     killed,
     candidates
-  };
-}
-async function unityRecompile(params) {
-  const config2 = resolveProjectConfig(params);
-  return recompileAndWait({
-    refresh: params.refresh ?? false,
-    timeoutMs: params.timeoutMs ?? 18e4,
-    pollIntervalMs: params.pollIntervalMs ?? 750,
-    commandTimeoutMs: 15e3,
-    execute: (command, parameters, timeoutMs) => executeEditorCommand({
-      unityPath: config2.unityPath,
-      projectPath: config2.projectPath,
-      commandRoot: config2.commandRoot,
-      command,
-      parameters,
-      timeoutMs,
-      runOnce: false
-    })
-  });
-}
-async function unityCaptureEditorWindow(params) {
-  const config2 = resolveProjectConfig(params);
-  const outputPath = params.outputPath || join6(config2.commandRoot, "screenshots", `editor-window-${Date.now()}.png`);
-  const response = await executeEditorCommand({
-    unityPath: config2.unityPath,
-    projectPath: config2.projectPath,
-    commandRoot: config2.commandRoot,
-    command: "capture_editor_window",
-    parameters: {
-      typeName: params.typeName,
-      outputPath
-    },
-    timeoutMs: params.timeoutMs ?? 15e3,
-    runOnce: false
-  });
-  const bytes = await fileSize(outputPath);
-  return {
-    ...response,
-    outputPath,
-    pngBytes: bytes,
-    pngExists: bytes > 0
   };
 }
 async function unityAssertPathExists(params) {

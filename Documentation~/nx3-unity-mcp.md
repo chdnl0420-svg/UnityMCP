@@ -77,9 +77,6 @@ The Node MCP server also exposes higher-level PlayMode helpers:
 
 And typed wrappers for the commands above:
 
-- `unity_recompile` — triggers recompile/refresh, waits for the domain reload to
-  settle (tolerating the mid-reload bridge outage), and returns compile errors
-- `unity_compile_status`, `unity_get_console_logs`, `unity_clear_console`
 - `unity_inspect_object`, `unity_find_objects`, `unity_scene_info`, `unity_get_hierarchy`, `unity_get_component`
 - `unity_set_active`, `unity_set_label_text`, `unity_set_input_text`, `unity_set_sprite`
 

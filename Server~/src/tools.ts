@@ -13,7 +13,6 @@ import { normalizeOutputs, setPlayModeAndWait } from './playMode.js';
 import { clickUiTextAndWait, waitForUiText, waitThenClick } from './uiText.js';
 import { runUiTextQaFlow } from './qaFlow.js';
 import { verifyScreenshotResponse } from './screenshot.js';
-import { recompileAndWait } from './recompile.js';
 import { registerEditorTools } from './editorTools.js';
 
 const baseConfigShape = {
@@ -160,32 +159,8 @@ export function registerTools(server: McpServer): void {
     includeUnity: z.boolean().optional(),
   }, async (params) => toToolResult(await unityKillStale(params)));
 
-  server.tool('unity_recompile', 'Recompiles scripts (or refreshes assets), waits for the domain reload to settle, and reports compile errors. Use after editing C# code.', {
-    ...baseConfigShape,
-    refresh: z.boolean().optional(),
-    timeoutMs: timeoutSchema,
-    pollIntervalMs: z.number().int().positive().max(10000).optional(),
-  }, async (params) => toToolResult(await unityRecompile(params)));
-
-  server.tool('unity_compile_status', 'Reports whether Unity is compiling/updating and lists buffered compile errors from the last compilation.', {
-    ...baseConfigShape,
-    timeoutMs: timeoutSchema,
-  }, async (params) => toToolResult(await unitySimpleCommand(params, 'compile_status', {})));
-
-  server.tool('unity_get_console_logs', 'Reads the Unity Editor console (error/warning/log) for QA evidence and compile-error inspection.', {
-    ...baseConfigShape,
-    logType: z.enum(['all', 'error', 'warning', 'log']).optional(),
-    maxCount: z.number().int().positive().max(1000).optional(),
-    timeoutMs: timeoutSchema,
-  }, async (params) => toToolResult(await unitySimpleCommand(params, 'get_console_logs', {
-    logType: params.logType,
-    maxCount: params.maxCount,
-  })));
-
-  server.tool('unity_clear_console', 'Clears the Unity Editor console so the next QA step starts from a clean log.', {
-    ...baseConfigShape,
-    timeoutMs: timeoutSchema,
-  }, async (params) => toToolResult(await unitySimpleCommand(params, 'clear_console', {})));
+  // Recompiling, compile status and the console are covered by unity_editor_refresh,
+  // unity_editor_compile_status, unity_editor_console_read and unity_editor_console_clear.
 
   server.tool('unity_inspect_object', 'Inspects a GameObject by hierarchy path or name: components, active state, transform, NGUI label/sprite/input, and collider bounds.', {
     ...baseConfigShape,
@@ -303,13 +278,8 @@ export function registerTools(server: McpServer): void {
   })));
 
   // --- Editor tool QA tools ---------------------------------------------------------------
-  server.tool('unity_execute_menu_item', 'Executes a Unity Editor menu item by path (e.g. "Assets/Refresh", "Tools/AssetBundle/Build"). Use to open a tool window or trigger a menu-driven action.', {
-    ...baseConfigShape,
-    menuItemPath: z.string().min(1),
-    timeoutMs: timeoutSchema,
-  }, async (params) => toToolResult(await unitySimpleCommand(params, 'execute_menu_item', {
-    menuItemPath: params.menuItemPath,
-  })));
+  // Menu items are covered by unity_editor_menu_execute, which fails loudly on an
+  // unknown path, and unity_editor_menu_list, which discovers the exact path.
 
   server.tool('unity_invoke_static_method', 'Reflection-invokes a public or non-public static C# method with string arguments (converted to each parameter type). The key tool for QAing editor tools headlessly: call the underlying logic directly instead of clicking a modal dialog. Example: typeName "MyTool.EditorBuild", methodName "Run", methodArgs ["2"].', {
     ...baseConfigShape,
@@ -323,47 +293,13 @@ export function registerTools(server: McpServer): void {
     methodArgs: params.methodArgs ?? [],
   })));
 
-  server.tool('unity_list_editor_windows', 'Lists all currently open EditorWindows (type, title, rect, focus). Use to verify a tool window actually opened.', {
-    ...baseConfigShape,
-    timeoutMs: timeoutSchema,
-  }, async (params) => toToolResult(await unitySimpleCommand(params, 'list_editor_windows', {})));
-
-  server.tool('unity_get_editor_window_info', 'Returns info (title, rect, focus) for an open EditorWindow matched by full or simple type name.', {
-    ...baseConfigShape,
-    typeName: z.string().min(1),
-    timeoutMs: timeoutSchema,
-  }, async (params) => toToolResult(await unitySimpleCommand(params, 'get_editor_window_info', {
-    typeName: params.typeName,
-  })));
-
-  server.tool('unity_capture_editor_window', 'Captures a screenshot of an Editor tool window (not the game camera) by reading its desktop screen region. Use to see a tool UI that the game-view screenshot cannot show.', {
-    ...baseConfigShape,
-    typeName: z.string().min(1),
-    outputPath: z.string().optional(),
-    timeoutMs: timeoutSchema,
-  }, async (params) => toToolResult(await unityCaptureEditorWindow(params)));
-
-  server.tool('unity_get_editor_prefs', 'Reads an EditorPrefs value by key and type (string|int|float|bool). Editor tools often gate behavior on EditorPrefs.', {
-    ...baseConfigShape,
-    key: z.string().min(1),
-    type: z.enum(['string', 'int', 'float', 'bool']).optional(),
-    timeoutMs: timeoutSchema,
-  }, async (params) => toToolResult(await unitySimpleCommand(params, 'get_editor_prefs', {
-    prefsKey: params.key,
-    prefsType: params.type ?? 'string',
-  })));
-
-  server.tool('unity_set_editor_prefs', 'Writes an EditorPrefs value by key and type (string|int|float|bool). Use to put an editor tool into a specific test state before driving it.', {
-    ...baseConfigShape,
-    key: z.string().min(1),
-    value: z.string(),
-    type: z.enum(['string', 'int', 'float', 'bool']).optional(),
-    timeoutMs: timeoutSchema,
-  }, async (params) => toToolResult(await unitySimpleCommand(params, 'set_editor_prefs', {
-    prefsKey: params.key,
-    prefsValue: params.value,
-    prefsType: params.type ?? 'string',
-  })));
+  // Editor windows are covered by unity_editor_window_list (which also reports the
+  // instance id every other editor tool targets by) and unity_editor_window_dump.
+  // Window pixels are covered by unity_editor_window_capture, which asks Windows for
+  // the window's own composition surface instead of reading a desktop screen region,
+  // so it works for floating windows, survives occlusion, and reports which backend ran.
+  // EditorPrefs are covered by unity_editor_prefs_get / unity_editor_prefs_set, which
+  // reach PlayerPrefs as well.
 
   server.tool('unity_get_asset_guid', 'Returns the GUID and main asset type for a project-relative asset path (e.g. "Assets/Foo.prefab"). Empty guid means the asset does not exist.', {
     ...baseConfigShape,
@@ -731,49 +667,6 @@ async function unityKillStale(params: any): Promise<unknown> {
     success: true,
     killed,
     candidates,
-  };
-}
-
-async function unityRecompile(params: any): Promise<unknown> {
-  const config = resolveProjectConfig(params);
-  return recompileAndWait({
-    refresh: params.refresh ?? false,
-    timeoutMs: params.timeoutMs ?? 180000,
-    pollIntervalMs: params.pollIntervalMs ?? 750,
-    commandTimeoutMs: 15000,
-    execute: (command, parameters, timeoutMs) => executeEditorCommand({
-      unityPath: config.unityPath,
-      projectPath: config.projectPath,
-      commandRoot: config.commandRoot,
-      command,
-      parameters,
-      timeoutMs,
-      runOnce: false,
-    }),
-  });
-}
-
-async function unityCaptureEditorWindow(params: any): Promise<unknown> {
-  const config = resolveProjectConfig(params);
-  const outputPath = params.outputPath || join(config.commandRoot, 'screenshots', `editor-window-${Date.now()}.png`);
-  const response = await executeEditorCommand({
-    unityPath: config.unityPath,
-    projectPath: config.projectPath,
-    commandRoot: config.commandRoot,
-    command: 'capture_editor_window',
-    parameters: {
-      typeName: params.typeName,
-      outputPath,
-    },
-    timeoutMs: params.timeoutMs ?? 15000,
-    runOnce: false,
-  });
-  const bytes = await fileSize(outputPath);
-  return {
-    ...response,
-    outputPath,
-    pngBytes: bytes,
-    pngExists: bytes > 0,
   };
 }
 

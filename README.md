@@ -246,12 +246,13 @@ Beyond PlayMode/screenshot/click tools, the server exposes code-iteration, QA
 inspection, and UI mutation tools. See `Documentation~/nx3-unity-mcp.md` for the
 full list. Highlights:
 
-- `unity_recompile` — recompile scripts (or `refresh=true` to reimport assets),
-  wait for the domain reload to settle, and return compile errors. Use this after
+- `unity_editor_refresh` — reimport assets and recompile scripts, wait for the
+  domain reload to settle, and return the compiler's own verdict. Use this after
   editing C# so the next QA step runs against fresh code. Scripts only compile in
   Edit mode, so exit PlayMode first.
-- `unity_compile_status` / `unity_get_console_logs` / `unity_clear_console` —
-  inspect compilation state and the Editor console for errors and warnings.
+- `unity_editor_compile_status` / `unity_editor_console_read` /
+  `unity_editor_console_clear` — inspect compilation state and the Editor console
+  for errors and warnings.
 - `unity_inspect_object` / `unity_find_objects` / `unity_scene_info` /
   `unity_get_hierarchy` — discover and inspect scene objects for QA.
 - `unity_set_active` / `unity_set_label_text` / `unity_set_input_text` /
