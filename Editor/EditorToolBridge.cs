@@ -2064,6 +2064,7 @@ namespace ProjectMQaMcp.Editor
             var modifiers = ParseModifiers(p.modifiers);
             var hoverMs = Mathf.Clamp(p.hoverMs > 0 ? p.hoverMs : 400, 0, 10000);
             var drop = string.IsNullOrEmpty(p.performDrop) || ParseBool(p.performDrop);
+            var panelEvents = string.IsNullOrEmpty(p.panelEvents) || ParseBool(p.panelEvents);
 
             string framesDir = null;
             EditorWindowCapture.Options captureOptions = null;
@@ -2131,13 +2132,25 @@ namespace ProjectMQaMcp.Editor
                 previous = point;
             }
 
-            var updatedSent = SendEvent(window, new Event
+            // Did the source actually start a drag? A receiver reads DragAndDrop.GetGenericData(key),
+            // so an empty slot here means the press and moves never reached the source's own handler and
+            // nothing downstream can work. Reported rather than thrown: the caller needs to see which
+            // half broke, and the key is only known to the caller.
+            var armedData = string.IsNullOrEmpty(p.genericDataKey)
+                ? null
+                : DragAndDrop.GetGenericData(p.genericDataKey);
+
+            // Standing in for a source that did not arm, so the receiver still has something to resolve.
+            // Only reaches for it when the caller named a key and the slot came back empty - a drag the
+            // source did arm must keep its own payload, which is the live object the tool will mutate.
+            var injected = false;
+            if (armedData == null && !string.IsNullOrEmpty(p.genericDataKey) && !string.IsNullOrEmpty(p.genericDataJson))
             {
-                type = EventType.DragUpdated,
-                mousePosition = to,
-                modifiers = modifiers,
-                delta = to - previous,
-            });
+                injected = InjectGenericData(p.genericDataKey, p.genericDataType, p.genericDataJson);
+                armedData = DragAndDrop.GetGenericData(p.genericDataKey);
+            }
+
+            var updatedSent = SendDragEvent(window, EventType.DragUpdated, to, to - previous, modifiers, panelEvents);
             record("dragUpdated", to, to - previous, updatedSent);
 
             if (hoverMs > 0)
@@ -2146,37 +2159,19 @@ namespace ProjectMQaMcp.Editor
             }
 
             // Second one after the pause: this is the frame where the highlight is on screen.
-            var hoverSent = SendEvent(window, new Event
-            {
-                type = EventType.DragUpdated,
-                mousePosition = to,
-                modifiers = modifiers,
-                delta = Vector2.zero,
-            });
+            var hoverSent = SendDragEvent(window, EventType.DragUpdated, to, Vector2.zero, modifiers, panelEvents);
             record("hover", to, Vector2.zero, hoverSent);
 
             var performSent = false;
             if (drop)
             {
-                performSent = SendEvent(window, new Event
-                {
-                    type = EventType.DragPerform,
-                    mousePosition = to,
-                    modifiers = modifiers,
-                    delta = Vector2.zero,
-                });
+                performSent = SendDragEvent(window, EventType.DragPerform, to, Vector2.zero, modifiers, panelEvents);
                 record("dragPerform", to, Vector2.zero, performSent);
             }
 
             // Always close the session, dropped or not - a tool that skipped DragExited would keep its
             // highlight lit and refuse the next drag.
-            var exitedSent = SendEvent(window, new Event
-            {
-                type = EventType.DragExited,
-                mousePosition = to,
-                modifiers = modifiers,
-                delta = Vector2.zero,
-            });
+            var exitedSent = SendDragEvent(window, EventType.DragExited, to, Vector2.zero, modifiers, panelEvents);
             record("dragExited", to, Vector2.zero, exitedSent);
 
             var upSent = SendEvent(window, new Event
@@ -2205,7 +2200,18 @@ namespace ProjectMQaMcp.Editor
             response.AddOutput("performDrop", drop ? "true" : "false");
             response.AddOutput("eventCount", eventCount.ToString(CultureInfo.InvariantCulture));
             response.AddOutput("events", events.ToString());
+            response.AddOutput("panelEvents", panelEvents ? "true" : "false");
             response.AddOutput("dragUpdatedReturned", updatedSent ? "true" : "false");
+
+            if (!string.IsNullOrEmpty(p.genericDataKey))
+            {
+                // The single most useful line when a drop does nothing: it says whether the source armed
+                // the drag at all, which decides whether to fix the press or the receiver.
+                response.AddOutput("genericDataKey", p.genericDataKey);
+                response.AddOutput("genericDataAfterArm",
+                    armedData == null ? "null" : armedData.GetType().FullName);
+                response.AddOutput("genericDataInjected", injected ? "true" : "false");
+            }
             response.AddOutput("dragPerformReturned", performSent ? "true" : "false");
 
             if (notes.Count > 0)
@@ -2228,6 +2234,142 @@ namespace ProjectMQaMcp.Editor
                         "First failure: " + FirstFrameError(frames.ToString()));
                 }
             }
+        }
+
+        /// <summary>
+        /// Sends one drag event, and when panelEvents is on also hands it straight to the UI Toolkit
+        /// element under the point.
+        ///
+        /// EditorWindow.SendEvent alone is not enough for a UI Toolkit receiver. The IMGUI event goes
+        /// down the IMGUI path, and a DragUpdatedEvent callback registered on a VisualElement never sees
+        /// it - measured on a drop target whose highlight stayed off while the same gesture from a real
+        /// mouse lit it. Picking the element and sending the converted event reaches those callbacks.
+        /// Both are sent because a window can mix IMGUI and UI Toolkit, and a receiver that already
+        /// handled the IMGUI one simply ignores the second.
+        /// </summary>
+        private static bool SendDragEvent(EditorWindow window, EventType type, Vector2 point, Vector2 delta,
+            EventModifiers modifiers, bool panelEvents)
+        {
+            var imgui = new Event
+            {
+                type = type,
+                mousePosition = point,
+                modifiers = modifiers,
+                delta = delta,
+            };
+
+            var sent = SendEvent(window, imgui);
+
+            if (!panelEvents)
+            {
+                return sent;
+            }
+
+            var root = window.rootVisualElement;
+            if (root == null || root.panel == null)
+            {
+                return sent;
+            }
+
+            // The panel measures from the window's content corner, so the tab strip offset that the
+            // IMGUI coordinates carry has to come back off before picking.
+            var border = BorderSize(window, null);
+            var panelPoint = border == null
+                ? point
+                : point - new Vector2(border.left, border.top);
+
+            var target = root.panel.Pick(panelPoint) ?? root;
+
+            EventBase converted;
+            switch (type)
+            {
+                case EventType.DragUpdated:
+                    converted = DragUpdatedEvent.GetPooled(imgui);
+                    break;
+
+                case EventType.DragPerform:
+                    converted = DragPerformEvent.GetPooled(imgui);
+                    break;
+
+                case EventType.DragExited:
+                    converted = DragExitedEvent.GetPooled(imgui);
+                    break;
+
+                default:
+                    return sent;
+            }
+
+            using (converted)
+            {
+                converted.target = target;
+                target.SendEvent(converted);
+            }
+
+            return sent;
+        }
+
+        /// <summary>
+        /// Puts a payload into the drag session for a source that did not arm one.
+        /// </summary>
+        /// <remarks>
+        /// Deserialising the JSON makes a <b>new</b> object. That is fine for lighting a highlight, which
+        /// only reads the payload, but a tool that mutates the dragged item will mutate this copy and
+        /// leave its own model untouched. So this is a diagnostic and screenshot aid, not a way to
+        /// perform real edits - for those the source has to start the drag itself.
+        /// </remarks>
+        private static bool InjectGenericData(string key, string typeName, string json)
+        {
+            try
+            {
+                object value = json;
+
+                if (!string.IsNullOrEmpty(typeName))
+                {
+                    var type = ResolveType(typeName);
+                    if (type == null)
+                    {
+                        return false;
+                    }
+
+                    value = JsonUtility.FromJson(json, type);
+                    if (value == null)
+                    {
+                        return false;
+                    }
+                }
+
+                DragAndDrop.PrepareStartDrag();
+                DragAndDrop.objectReferences = new UnityEngine.Object[0];
+                DragAndDrop.SetGenericData(key, value);
+                return true;
+            }
+            catch (Exception)
+            {
+                // A bad type name or malformed JSON must not take the whole gesture down - the response
+                // says the injection did not happen and the caller can see why from the empty slot.
+                return false;
+            }
+        }
+
+        /// <summary>Finds a type by full name across the loaded assemblies.</summary>
+        private static Type ResolveType(string typeName)
+        {
+            var direct = Type.GetType(typeName, false);
+            if (direct != null)
+            {
+                return direct;
+            }
+
+            foreach (var assembly in AppDomain.CurrentDomain.GetAssemblies())
+            {
+                var found = assembly.GetType(typeName, false);
+                if (found != null)
+                {
+                    return found;
+                }
+            }
+
+            return null;
         }
 
         private static void AppendDragEvent(StringBuilder sb, int index, string phase, Vector2 point,

@@ -2857,6 +2857,16 @@ namespace ProjectMQaMcp.Editor
         public int hoverMs;
         // Text rather than bool: the default is true and JsonUtility cannot tell "absent" from "false".
         public string performDrop;
+        // Also hand the drag events to the UI Toolkit element under the point. Default on: an IMGUI-only
+        // send never reaches a DragUpdatedEvent callback registered on a VisualElement.
+        public string panelEvents;
+        // The DragAndDrop.SetGenericData key the receiving tool reads. Naming it turns on the report of
+        // whether the source armed the drag, which is the first thing to know when a drop does nothing.
+        public string genericDataKey;
+        // Payload to stand in with when the source did not arm one. Deserialised into genericDataType,
+        // or passed through as a raw string when no type is named.
+        public string genericDataJson;
+        public string genericDataType;
 
         // --- UI Toolkit element targeting (editor_element_query, targetMode "element") ---
         public string elementName;

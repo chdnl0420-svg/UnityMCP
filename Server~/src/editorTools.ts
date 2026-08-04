@@ -218,6 +218,14 @@ export function registerEditorTools(server: McpServer): void {
         .describe('How long to hold over the target before dropping, so the highlight is painted and capturable (default 400).'),
       performDrop: z.boolean().optional()
         .describe('Actually drop (default true). False hovers and then leaves, which captures the highlight without changing anything.'),
+      panelEvents: z.boolean().optional()
+        .describe('Also hand the drag events to the UI Toolkit element under the point (default true). An IMGUI-only send never reaches a DragUpdatedEvent callback registered on a VisualElement, which is what a UI Toolkit drop target uses.'),
+      genericDataKey: z.string().optional()
+        .describe('The DragAndDrop.SetGenericData key the receiving tool reads. Naming it reports whether the source armed the drag - the first thing to know when a drop does nothing.'),
+      genericDataJson: z.string().optional()
+        .describe('Payload to stand in with when the source did not arm one. Lights a highlight for a screenshot, but a tool that mutates the dragged item will mutate this copy, not its own model - real edits need the source to start the drag itself.'),
+      genericDataType: z.string().optional()
+        .describe('Full type name to deserialise genericDataJson into (e.g. "MyTool.DragPayload"). Omit to pass the JSON through as a raw string.'),
       modifiers: z.string().optional().describe('Comma separated: shift, control, alt, command.'),
       noFocus: z.boolean().optional().describe('Do not focus the window first. Most drags need focus, so this is off by default.'),
       framesDir: z.string().optional().describe('Directory for the frames. Omit to run without capturing.'),
@@ -235,6 +243,10 @@ export function registerEditorTools(server: McpServer): void {
         coordinateSpace: params.coordinateSpace ?? 'content',
         hoverMs: params.hoverMs ?? 400,
         performDrop: (params.performDrop ?? true) ? 'true' : 'false',
+        panelEvents: (params.panelEvents ?? true) ? 'true' : 'false',
+        genericDataKey: params.genericDataKey,
+        genericDataJson: params.genericDataJson,
+        genericDataType: params.genericDataType,
         modifiers: params.modifiers,
         noFocus: params.noFocus ?? false,
         framesDir: params.framesDir,
