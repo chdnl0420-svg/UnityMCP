@@ -2316,33 +2316,19 @@ namespace ProjectMQaMcp.Editor
 
             while (element != null && visited < AncestorWalkLimit)
             {
-                // A receiver that takes the drag sets the visual mode, so clearing it first turns
-                // "did anyone take it" into something readable - the event itself reports nothing.
-                var previousMode = DragAndDrop.visualMode;
-                if (type == EventType.DragUpdated)
-                {
-                    DragAndDrop.visualMode = DragAndDropVisualMode.None;
-                }
-
-                if (!SendConverted(element, type, imgui))
+                bool taken;
+                if (!SendConverted(element, type, imgui, out taken))
                 {
                     return sent;
                 }
 
-                if (type == EventType.DragUpdated)
+                if (taken && type != EventType.DragExited)
                 {
-                    if (DragAndDrop.visualMode != DragAndDropVisualMode.None)
-                    {
-                        handler = element;
-                        return sent;
-                    }
-
-                    DragAndDrop.visualMode = previousMode;
-                    handler = null;
-                }
-                else if (type == EventType.DragPerform)
-                {
-                    // The drop was aimed at one element; do not let it land twice.
+                    // DragExited walks on regardless: clearing a highlight has no side effect, and one
+                    // lit further up would otherwise stay on. The other two stop at the first taker -
+                    // a receiver that accepts a drop also applies it, and walking past it would apply
+                    // the same drop again on every ancestor that accepts.
+                    handler = element;
                     return sent;
                 }
 
@@ -2350,13 +2336,21 @@ namespace ProjectMQaMcp.Editor
                 visited++;
             }
 
+            if (type != EventType.DragExited)
+            {
+                handler = null;
+            }
+
             return sent;
         }
 
         /// <summary>Converts one IMGUI drag event and hands it to a single element.</summary>
+        /// <param name="taken">True when a callback on that element took the event.</param>
         /// <returns>False when the event type has no UI Toolkit counterpart to send.</returns>
-        private static bool SendConverted(VisualElement element, EventType type, Event imgui)
+        private static bool SendConverted(VisualElement element, EventType type, Event imgui, out bool taken)
         {
+            taken = false;
+
             EventBase converted;
             switch (type)
             {
@@ -2380,9 +2374,43 @@ namespace ProjectMQaMcp.Editor
             {
                 converted.target = element;
                 element.SendEvent(converted);
+                taken = WasStopped(converted);
             }
 
             return true;
+        }
+
+        private static PropertyInfo propagationStoppedProperty;
+        private static bool propagationLookupDone;
+
+        /// <summary>Whether a receiver stopped the event it just handled.</summary>
+        /// <remarks>
+        /// This is what "someone took the drag" means: a drop target that accepts stops propagation so
+        /// the containers above it do not act on the same gesture.
+        ///
+        /// DragAndDrop.visualMode looked like the easier signal and is not reliable - measured a rail
+        /// folder that lit its highlight and moved the item while the mode read back as None right
+        /// after the send. The property is read by reflection because it is not public in every editor
+        /// version; when it cannot be found nothing is reported as taken, which costs the walk an early
+        /// exit but never invents one.
+        /// </remarks>
+        private static bool WasStopped(EventBase evt)
+        {
+            if (!propagationLookupDone)
+            {
+                propagationLookupDone = true;
+                propagationStoppedProperty = typeof(EventBase).GetProperty(
+                    "isPropagationStopped",
+                    BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+            }
+
+            if (propagationStoppedProperty == null)
+            {
+                return false;
+            }
+
+            var value = propagationStoppedProperty.GetValue(evt, null);
+            return value is bool && (bool)value;
         }
 
         /// <summary>Names an element for the response, so a failed drop says where it stopped.</summary>
