@@ -83,6 +83,7 @@ namespace ProjectMQaMcp.Editor
                 case "editor_window_capture": CaptureWindow(p, response); return true;
                 case "editor_drag": Drag(p, response); return true;
                 case "editor_drag_capture": DragCapture(p, response); return true;
+                case "editor_drag_drop": DragDrop(p, response); return true;
                 case "editor_move": Move(p, response); return true;
                 case "editor_scroll": Scroll(p, response); return true;
                 case "editor_element_query": ElementQuery(p, response); return true;
@@ -2005,6 +2006,216 @@ namespace ProjectMQaMcp.Editor
             {
                 response.AddOutput("framesDir", framesDir);
                 response.AddOutput("captureEveryMove", captureEveryMove ? "true" : "false");
+                response.AddOutput("frameCount", frameIndex.ToString(CultureInfo.InvariantCulture));
+                response.AddOutput("framesCaptured", frameOk.ToString(CultureInfo.InvariantCulture));
+                response.AddOutput("framesFailed", frameFailed.ToString(CultureInfo.InvariantCulture));
+                response.AddOutput("frames", frames.ToString());
+
+                if (frameOk == 0)
+                {
+                    throw new InvalidOperationException(
+                        "The drag ran but no frame could be captured, so there is no rendering evidence. " +
+                        "First failure: " + FirstFrameError(frames.ToString()));
+                }
+            }
+        }
+
+        /// <summary>
+        /// Runs a real editor drag and drop, the kind that moves an item between two panes of a tool
+        /// window, and saves a PNG at each stage.
+        ///
+        /// unity_editor_drag alone cannot do this. A tool that starts a drag calls DragAndDrop.StartDrag,
+        /// which hands the gesture to the editor's own drag session; from that point the receiving side
+        /// waits for DragUpdated and DragPerform, and no amount of further MouseDrag produces them.
+        /// Measured on a tool whose drop target never lit up and whose item never moved, while the same
+        /// coordinates driven by a real mouse worked. So the press and the first moves are sent as a
+        /// normal drag to make the source call StartDrag, and then DragUpdated / DragPerform / DragExited
+        /// are sent at the destination to finish the session.
+        ///
+        /// DragUpdated is sent twice with a pause between: the first one lets the receiver set
+        /// DragAndDrop.visualMode and paint its highlight, and the pause is what makes that highlight
+        /// capturable - a mid-gesture frame is usually the only picture worth having.
+        /// </summary>
+        private static void DragDrop(CommandParameters p, CommandResponse response)
+        {
+            var window = ResolveWindowOrThrow(p);
+            var notes = new List<string>();
+
+            var space = string.IsNullOrEmpty(p.coordinateSpace)
+                ? "content"
+                : p.coordinateSpace.Trim().ToLowerInvariant();
+
+            var offset = Vector2.zero;
+            if (space == "content")
+            {
+                var border = BorderSize(window, notes);
+                if (border != null)
+                {
+                    offset = new Vector2(border.left, border.top);
+                }
+            }
+            else if (space != "host")
+            {
+                throw new ArgumentException("coordinateSpace must be 'content' (default) or 'host'.");
+            }
+
+            var from = new Vector2(p.fromX, p.fromY) + offset;
+            var to = new Vector2(p.toX, p.toY) + offset;
+            var modifiers = ParseModifiers(p.modifiers);
+            var hoverMs = Mathf.Clamp(p.hoverMs > 0 ? p.hoverMs : 400, 0, 10000);
+            var drop = string.IsNullOrEmpty(p.performDrop) || ParseBool(p.performDrop);
+
+            string framesDir = null;
+            EditorWindowCapture.Options captureOptions = null;
+            if (!string.IsNullOrEmpty(p.framesDir))
+            {
+                framesDir = p.framesDir;
+                Directory.CreateDirectory(framesDir);
+                captureOptions = CaptureOptionsFrom(p);
+            }
+
+            if (!p.noFocus)
+            {
+                window.Focus();
+            }
+
+            RepaintImmediate(window);
+
+            var events = new StringBuilder("[");
+            var frames = new StringBuilder("[");
+            var eventCount = 0;
+            var frameIndex = 0;
+            var frameOk = 0;
+            var frameFailed = 0;
+
+            Action<string, Vector2, Vector2, bool> record = (phase, point, delta, sent) =>
+            {
+                AppendDragEvent(events, eventCount, phase, point, offset, delta, sent);
+                eventCount++;
+                RepaintImmediate(window);
+
+                if (framesDir != null)
+                {
+                    AppendDragFrame(frames, window, framesDir, ref frameIndex, phase, point, captureOptions,
+                        ref frameOk, ref frameFailed);
+                }
+            };
+
+            var downSent = SendEvent(window, new Event
+            {
+                type = EventType.MouseDown,
+                mousePosition = from,
+                button = 0,
+                clickCount = 1,
+                modifiers = modifiers,
+                delta = Vector2.zero,
+            });
+            record("down", from, Vector2.zero, downSent);
+
+            // Short moves that stay on the source. A tool arms its drag on the first move that clears its
+            // own threshold, so these have to be real moves with a real delta, not one jump to the target.
+            var previous = from;
+            foreach (var nudge in new[] { 4f, 10f, 18f, 28f })
+            {
+                var point = from + new Vector2(nudge, 0f);
+                var sent = SendEvent(window, new Event
+                {
+                    type = EventType.MouseDrag,
+                    mousePosition = point,
+                    button = 0,
+                    clickCount = 0,
+                    modifiers = modifiers,
+                    delta = point - previous,
+                });
+                record("arm", point, point - previous, sent);
+                previous = point;
+            }
+
+            var updatedSent = SendEvent(window, new Event
+            {
+                type = EventType.DragUpdated,
+                mousePosition = to,
+                modifiers = modifiers,
+                delta = to - previous,
+            });
+            record("dragUpdated", to, to - previous, updatedSent);
+
+            if (hoverMs > 0)
+            {
+                System.Threading.Thread.Sleep(hoverMs);
+            }
+
+            // Second one after the pause: this is the frame where the highlight is on screen.
+            var hoverSent = SendEvent(window, new Event
+            {
+                type = EventType.DragUpdated,
+                mousePosition = to,
+                modifiers = modifiers,
+                delta = Vector2.zero,
+            });
+            record("hover", to, Vector2.zero, hoverSent);
+
+            var performSent = false;
+            if (drop)
+            {
+                performSent = SendEvent(window, new Event
+                {
+                    type = EventType.DragPerform,
+                    mousePosition = to,
+                    modifiers = modifiers,
+                    delta = Vector2.zero,
+                });
+                record("dragPerform", to, Vector2.zero, performSent);
+            }
+
+            // Always close the session, dropped or not - a tool that skipped DragExited would keep its
+            // highlight lit and refuse the next drag.
+            var exitedSent = SendEvent(window, new Event
+            {
+                type = EventType.DragExited,
+                mousePosition = to,
+                modifiers = modifiers,
+                delta = Vector2.zero,
+            });
+            record("dragExited", to, Vector2.zero, exitedSent);
+
+            var upSent = SendEvent(window, new Event
+            {
+                type = EventType.MouseUp,
+                mousePosition = to,
+                button = 0,
+                clickCount = 1,
+                modifiers = modifiers,
+                delta = Vector2.zero,
+            });
+            record("up", to, Vector2.zero, upSent);
+
+            window.Repaint();
+            RepaintImmediate(window);
+
+            events.Append(']');
+            frames.Append(']');
+
+            DescribeTarget(window, response);
+            response.AddOutput("coordinateSpace", space);
+            response.AddOutput("contentOffset", F(offset.x) + "," + F(offset.y));
+            response.AddOutput("from", F(from.x) + "," + F(from.y));
+            response.AddOutput("to", F(to.x) + "," + F(to.y));
+            response.AddOutput("hoverMs", hoverMs.ToString(CultureInfo.InvariantCulture));
+            response.AddOutput("performDrop", drop ? "true" : "false");
+            response.AddOutput("eventCount", eventCount.ToString(CultureInfo.InvariantCulture));
+            response.AddOutput("events", events.ToString());
+            response.AddOutput("dragUpdatedReturned", updatedSent ? "true" : "false");
+            response.AddOutput("dragPerformReturned", performSent ? "true" : "false");
+
+            if (notes.Count > 0)
+            {
+                response.AddOutput("dragNotes", string.Join(" | ", notes.ToArray()));
+            }
+
+            if (framesDir != null)
+            {
+                response.AddOutput("framesDir", framesDir);
                 response.AddOutput("frameCount", frameIndex.ToString(CultureInfo.InvariantCulture));
                 response.AddOutput("framesCaptured", frameOk.ToString(CultureInfo.InvariantCulture));
                 response.AddOutput("framesFailed", frameFailed.ToString(CultureInfo.InvariantCulture));

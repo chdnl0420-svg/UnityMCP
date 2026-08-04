@@ -203,6 +203,66 @@ export function registerEditorTools(server: McpServer): void {
     { ...commonShape, ...windowShape, ...dragShape },
     async (params) => toToolResult(await runBridge(params, 'editor_drag', dragParameters(params))));
 
+  server.tool('unity_editor_drag_drop',
+    'Runs a real editor drag and drop - the kind that moves an item between two panes of a tool window - and saves a PNG at each stage. unity_editor_drag cannot do this on its own: once the source calls DragAndDrop.StartDrag the editor takes over the gesture, and the receiving side then waits for DragUpdated and DragPerform, which no amount of further MouseDrag produces. This sends the press and a few short moves to make the source start the drag, then DragUpdated (twice, with a pause so the drop highlight is on screen long enough to capture), DragPerform and DragExited at the destination. Use framesDir to keep the frames; the hover frame is usually the one worth showing.',
+    {
+      ...commonShape,
+      ...windowShape,
+      fromX: z.number().describe('Drag start x, in window-local coordinates - the item being dragged.'),
+      fromY: z.number().describe('Drag start y.'),
+      toX: z.number().describe('Drop target x.'),
+      toY: z.number().describe('Drop target y.'),
+      coordinateSpace: z.enum(['content', 'host']).optional()
+        .describe('"content" (default) treats 0,0 as the window\'s content corner and adds the dock tab strip offset automatically; "host" sends raw host-view coordinates.'),
+      hoverMs: z.number().int().min(0).max(10000).optional()
+        .describe('How long to hold over the target before dropping, so the highlight is painted and capturable (default 400).'),
+      performDrop: z.boolean().optional()
+        .describe('Actually drop (default true). False hovers and then leaves, which captures the highlight without changing anything.'),
+      modifiers: z.string().optional().describe('Comma separated: shift, control, alt, command.'),
+      noFocus: z.boolean().optional().describe('Do not focus the window first. Most drags need focus, so this is off by default.'),
+      framesDir: z.string().optional().describe('Directory for the frames. Omit to run without capturing.'),
+      includeChrome: z.boolean().optional(),
+      captureBackend: z.enum(['auto', 'printwindow', 'screen', 'framebuffer']).optional(),
+      captureSettleMs: z.number().int().min(0).max(2000).optional(),
+      allowUniform: z.boolean().optional(),
+    },
+    async (params) => {
+      const result = await runBridge(params, 'editor_drag_drop', {
+        fromX: params.fromX,
+        fromY: params.fromY,
+        toX: params.toX,
+        toY: params.toY,
+        coordinateSpace: params.coordinateSpace ?? 'content',
+        hoverMs: params.hoverMs ?? 400,
+        performDrop: (params.performDrop ?? true) ? 'true' : 'false',
+        modifiers: params.modifiers,
+        noFocus: params.noFocus ?? false,
+        framesDir: params.framesDir,
+        includeChrome: params.includeChrome ?? false,
+        captureBackend: params.captureBackend ?? 'auto',
+        captureSettleMs: params.captureSettleMs ?? 0,
+        allowUniform: params.allowUniform ?? false,
+      });
+
+      // Same re-check as the capture command: the bridge reports what it believes it wrote, and a
+      // caller reading these paths cares whether the files are actually there.
+      const frames = Array.isArray(result.outputs?.frames) ? result.outputs.frames : [];
+      const verified = await Promise.all(frames.map(async (frame: any) => ({
+        ...frame,
+        pngExists: await pathExists(frame?.path ?? ''),
+        pngBytes: await fileSize(frame?.path ?? ''),
+      })));
+
+      return toToolResult({
+        ...result,
+        outputs: {
+          ...result.outputs,
+          frames: verified,
+          framesOnDisk: verified.filter((frame) => frame.pngExists && frame.pngBytes > 0).length,
+        },
+      });
+    });
+
   server.tool('unity_editor_drag_capture',
     'Runs the same drag as unity_editor_drag and saves a PNG of the target window right after the MouseDown, after each MouseDrag and after the MouseUp, so a mid-gesture rendering can be checked rather than only the end state. Works for floating and docked windows. Returns the ordered frame list with each path, size and failure reason.',
     {

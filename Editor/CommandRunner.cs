@@ -2851,6 +2851,13 @@ namespace ProjectMQaMcp.Editor
         // Text rather than bool because the default is true and JsonUtility cannot tell "absent" from "false".
         public string captureEveryMove;
 
+        // --- editor drag and drop (editor_drag_drop) ---
+        // How long to hold at the destination before the drop is performed, so the receiver has a frame
+        // to paint its highlight. The capture of that highlight is the whole point of the pause.
+        public int hoverMs;
+        // Text rather than bool: the default is true and JsonUtility cannot tell "absent" from "false".
+        public string performDrop;
+
         // --- UI Toolkit element targeting (editor_element_query, targetMode "element") ---
         public string elementName;
         public string elementClass;
