@@ -2150,12 +2150,7 @@ namespace ProjectMQaMcp.Editor
                 armedData = DragAndDrop.GetGenericData(p.genericDataKey);
             }
 
-            // Carried across the calls below: DragUpdated finds who takes the drag, DragPerform drops on
-            // that one alone. Null after a hover nobody took, which is what "the drop went nowhere" means.
-            VisualElement handler = null;
-
-            var updatedSent = SendDragEvent(window, EventType.DragUpdated, to, to - previous, modifiers,
-                panelEvents, ref handler);
+            var updatedSent = SendDragEvent(window, EventType.DragUpdated, to, to - previous, modifiers, panelEvents);
             record("dragUpdated", to, to - previous, updatedSent);
 
             if (hoverMs > 0)
@@ -2164,26 +2159,19 @@ namespace ProjectMQaMcp.Editor
             }
 
             // Second one after the pause: this is the frame where the highlight is on screen.
-            var hoverSent = SendDragEvent(window, EventType.DragUpdated, to, Vector2.zero, modifiers,
-                panelEvents, ref handler);
+            var hoverSent = SendDragEvent(window, EventType.DragUpdated, to, Vector2.zero, modifiers, panelEvents);
             record("hover", to, Vector2.zero, hoverSent);
-
-            var hoverHandler = DescribeElement(handler);
 
             var performSent = false;
             if (drop)
             {
-                performSent = SendDragEvent(window, EventType.DragPerform, to, Vector2.zero, modifiers,
-                    panelEvents, ref handler);
+                performSent = SendDragEvent(window, EventType.DragPerform, to, Vector2.zero, modifiers, panelEvents);
                 record("dragPerform", to, Vector2.zero, performSent);
             }
 
             // Always close the session, dropped or not - a tool that skipped DragExited would keep its
-            // highlight lit and refuse the next drag. This one goes to every ancestor: clearing a
-            // highlight has no side effect, and one lit further up would otherwise stay on.
-            VisualElement exitHandler = null;
-            var exitedSent = SendDragEvent(window, EventType.DragExited, to, Vector2.zero, modifiers,
-                panelEvents, ref exitHandler);
+            // highlight lit and refuse the next drag.
+            var exitedSent = SendDragEvent(window, EventType.DragExited, to, Vector2.zero, modifiers, panelEvents);
             record("dragExited", to, Vector2.zero, exitedSent);
 
             var upSent = SendEvent(window, new Event
@@ -2214,10 +2202,6 @@ namespace ProjectMQaMcp.Editor
             response.AddOutput("events", events.ToString());
             response.AddOutput("panelEvents", panelEvents ? "true" : "false");
             response.AddOutput("dragUpdatedReturned", updatedSent ? "true" : "false");
-
-            // Empty means the hover reached no drop target, so a drop here was never going to land -
-            // the difference between "the receiver refused it" and "nothing was listening".
-            response.AddOutput("hoverHandler", hoverHandler);
 
             if (!string.IsNullOrEmpty(p.genericDataKey))
             {
@@ -2252,32 +2236,19 @@ namespace ProjectMQaMcp.Editor
             }
         }
 
-        /// <summary>How far up the ancestor chain a drag event is offered before giving up.</summary>
-        private const int AncestorWalkLimit = 24;
-
         /// <summary>
-        /// Sends one drag event, and when panelEvents is on also offers it to the UI Toolkit elements
-        /// under the point.
+        /// Sends one drag event, and when panelEvents is on also hands it straight to the UI Toolkit
+        /// element under the point.
         ///
         /// EditorWindow.SendEvent alone is not enough for a UI Toolkit receiver. The IMGUI event goes
         /// down the IMGUI path, and a DragUpdatedEvent callback registered on a VisualElement never sees
         /// it - measured on a drop target whose highlight stayed off while the same gesture from a real
-        /// mouse lit it. Both are sent because a window can mix IMGUI and UI Toolkit, and a receiver that
-        /// already handled the IMGUI one simply ignores the second.
-        ///
-        /// Picking one element is not enough either. Pick returns the deepest thing under the point - a
-        /// label, inside a row, inside a scroll view - while the drop target is usually registered on the
-        /// container above it, and the converted event does not travel up there on its own. Measured on a
-        /// hold column: the highlight stayed off when the event went to the picked label and came on when
-        /// the same event went to that label's container five levels up. So the event is offered to each
-        /// ancestor in turn.
-        ///
-        /// handler carries the element that took the drag from one call to the next. DragUpdated finds it;
-        /// DragPerform then goes to that element alone, because a receiver that accepts a drop also applies
-        /// it, and walking past it would apply the same drop again on every ancestor that accepts.
+        /// mouse lit it. Picking the element and sending the converted event reaches those callbacks.
+        /// Both are sent because a window can mix IMGUI and UI Toolkit, and a receiver that already
+        /// handled the IMGUI one simply ignores the second.
         /// </summary>
         private static bool SendDragEvent(EditorWindow window, EventType type, Vector2 point, Vector2 delta,
-            EventModifiers modifiers, bool panelEvents, ref VisualElement handler)
+            EventModifiers modifiers, bool panelEvents)
         {
             var imgui = new Event
             {
@@ -2307,49 +2278,7 @@ namespace ProjectMQaMcp.Editor
                 ? point
                 : point - new Vector2(border.left, border.top);
 
-            // A drop goes only to whoever took the hover. Everything else starts at the point.
-            var element = type == EventType.DragPerform && handler != null
-                ? handler
-                : root.panel.Pick(panelPoint) ?? root;
-
-            var visited = 0;
-
-            while (element != null && visited < AncestorWalkLimit)
-            {
-                bool taken;
-                if (!SendConverted(element, type, imgui, out taken))
-                {
-                    return sent;
-                }
-
-                if (taken && type != EventType.DragExited)
-                {
-                    // DragExited walks on regardless: clearing a highlight has no side effect, and one
-                    // lit further up would otherwise stay on. The other two stop at the first taker -
-                    // a receiver that accepts a drop also applies it, and walking past it would apply
-                    // the same drop again on every ancestor that accepts.
-                    handler = element;
-                    return sent;
-                }
-
-                element = element.parent;
-                visited++;
-            }
-
-            if (type != EventType.DragExited)
-            {
-                handler = null;
-            }
-
-            return sent;
-        }
-
-        /// <summary>Converts one IMGUI drag event and hands it to a single element.</summary>
-        /// <param name="taken">True when a callback on that element took the event.</param>
-        /// <returns>False when the event type has no UI Toolkit counterpart to send.</returns>
-        private static bool SendConverted(VisualElement element, EventType type, Event imgui, out bool taken)
-        {
-            taken = false;
+            var target = root.panel.Pick(panelPoint) ?? root;
 
             EventBase converted;
             switch (type)
@@ -2367,63 +2296,16 @@ namespace ProjectMQaMcp.Editor
                     break;
 
                 default:
-                    return false;
+                    return sent;
             }
 
             using (converted)
             {
-                converted.target = element;
-                element.SendEvent(converted);
-                taken = WasStopped(converted);
+                converted.target = target;
+                target.SendEvent(converted);
             }
 
-            return true;
-        }
-
-        private static PropertyInfo propagationStoppedProperty;
-        private static bool propagationLookupDone;
-
-        /// <summary>Whether a receiver stopped the event it just handled.</summary>
-        /// <remarks>
-        /// This is what "someone took the drag" means: a drop target that accepts stops propagation so
-        /// the containers above it do not act on the same gesture.
-        ///
-        /// DragAndDrop.visualMode looked like the easier signal and is not reliable - measured a rail
-        /// folder that lit its highlight and moved the item while the mode read back as None right
-        /// after the send. The property is read by reflection because it is not public in every editor
-        /// version; when it cannot be found nothing is reported as taken, which costs the walk an early
-        /// exit but never invents one.
-        /// </remarks>
-        private static bool WasStopped(EventBase evt)
-        {
-            if (!propagationLookupDone)
-            {
-                propagationLookupDone = true;
-                propagationStoppedProperty = typeof(EventBase).GetProperty(
-                    "isPropagationStopped",
-                    BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
-            }
-
-            if (propagationStoppedProperty == null)
-            {
-                return false;
-            }
-
-            var value = propagationStoppedProperty.GetValue(evt, null);
-            return value is bool && (bool)value;
-        }
-
-        /// <summary>Names an element for the response, so a failed drop says where it stopped.</summary>
-        private static string DescribeElement(VisualElement element)
-        {
-            if (element == null)
-            {
-                return string.Empty;
-            }
-
-            return string.IsNullOrEmpty(element.name)
-                ? element.GetType().Name
-                : $"{element.GetType().Name}#{element.name}";
+            return sent;
         }
 
         /// <summary>
