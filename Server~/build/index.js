@@ -22483,7 +22483,7 @@ function registerEditorTools(server2) {
   );
   server2.tool(
     "unity_editor_dialog_click",
-    "Arms a watcher that presses a button on the next modal dialog to appear, then returns immediately. Arm it BEFORE sending the command that raises the dialog: while an EditorUtility.DisplayDialog is up the editor stops ticking and no bridge command can be read, so a dialog that is already on screen cannot be reached this way. The watcher runs on a background thread and reports what it pressed - read the outcome with unity_editor_dialog_status.",
+    "Presses a button on a modal dialog. Can be sent before the dialog appears (it waits) or after it is already up - this command is read by a background thread, so it still arrives while the editor is frozen. The button is chosen by label or index, pressed as a real button with BM_CLICK, and the label actually pressed is reported. Read the outcome with unity_editor_dialog_status.",
     {
       ...commonShape,
       buttonLabel: external_exports.string().optional().describe("Substring of the button text, matched case-insensitively. Preferred over index: it is checked against the real button and reported back."),
@@ -22505,6 +22505,21 @@ function registerEditorTools(server2) {
     "Reports what the armed dialog watcher saw and did: the dialog title, the buttons it offered, which label was pressed, whether it was pressed as a real button or by keyboard, and whether the dialog actually closed.",
     { ...commonShape },
     async (params) => toToolResult(await runBridge(params, "editor_dialog_status", {}))
+  );
+  server2.tool(
+    "unity_editor_dialog_capture",
+    "Photographs the editor while a modal dialog has it frozen - the one picture unity_editor_window_capture cannot take, because that command starts from an EditorWindow and turning one into an OS window handle needs the main thread that the dialog is holding. This runs entirely off the main thread, so it works exactly when nothing else does. By default it shoots the window the last normal capture resolved; if a dialog is up and is not over that window, it falls back to the largest window of the process (the main editor one) so the dialog is actually in frame, and says so in targetBasis. Popups and dialogs above the subject are composited in with PrintWindow, never a desktop read.",
+    {
+      ...commonShape,
+      outputPath: external_exports.string().optional().describe("Defaults to <commandRoot>/screenshots/editor-dialog-capture-<ticks>.png."),
+      windowTitle: external_exports.string().optional().describe("Shoot the window whose title contains this instead of choosing one automatically. Use the dialog title to capture the dialog alone."),
+      includePopups: external_exports.boolean().optional().describe("Composite overlapping popups and dialogs into the frame (default true here - a capture taken during a dialog that left the dialog out would answer the wrong question).")
+    },
+    async (params) => toToolResult(await runBridge(params, "editor_dialog_capture", {
+      outputPath: params.outputPath,
+      windowTitle: params.windowTitle,
+      includePopups: params.includePopups ?? true ? "true" : "false"
+    }))
   );
   server2.tool(
     "unity_editor_dialog_list",

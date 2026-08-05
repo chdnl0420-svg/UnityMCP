@@ -42,6 +42,13 @@ namespace ProjectMQaMcp.Editor
         internal const string BackendScreen = "gdi-screen";
         internal const string BackendFramebuffer = "unity-framebuffer";
 
+        /// <summary>
+        /// The OS window handle the last normal capture resolved. Read from the watcher thread as the
+        /// default subject for an off-thread capture, because resolving a handle needs Unity and the
+        /// main thread is exactly what is unavailable when that capture matters.
+        /// </summary>
+        internal static IntPtr LastCapturedHwnd;
+
         internal sealed class Options
         {
             /// <summary>"auto" (default), or one backend name to force for diagnosis.</summary>
@@ -184,6 +191,10 @@ namespace ProjectMQaMcp.Editor
                 if (TryResolveOsWindow(containerRect, result, out os))
                 {
                     result.hwnd = os.handle.ToInt64();
+                    // Remembered for the off-thread capture, which cannot resolve a window itself:
+                    // resolving one needs Unity, and the whole point of that path is that Unity is
+                    // frozen. Whatever was last captured normally is the useful default to re-shoot.
+                    LastCapturedHwnd = os.handle;
                     result.hwndTitle = os.title;
                     result.hwndRect = new Rect(os.windowRect.left, os.windowRect.top, os.windowRect.Width, os.windowRect.Height);
                     result.mappingBasis = os.basis;
@@ -410,7 +421,12 @@ namespace ProjectMQaMcp.Editor
                     // screen backend reads whatever is already on top, so it has them by construction.
                     if (options != null && options.includePopups)
                     {
-                        CompositePopups(hwnd, memoryDc, left, top, width, height, result);
+                        int composited;
+                        string titles;
+                        CompositePopups(hwnd, memoryDc, left, top, width, height, result.notes,
+                            out composited, out titles);
+                        result.popupsComposited = composited;
+                        result.popupTitles = titles;
                     }
                 }
                 else
@@ -467,11 +483,12 @@ namespace ProjectMQaMcp.Editor
         /// the stacking in the image matches the stacking on screen.
         /// </summary>
         private static void CompositePopups(IntPtr target, IntPtr destinationDc, int left, int top,
-            int width, int height, Result result)
+            int width, int height, List<string> notes, out int composited, out string titles)
         {
-            // Claim the counter up front so every exit below reports "the pass ran" rather than
-            // looking like the option was never asked for.
-            result.popupsComposited = 0;
+            // Claimed up front so every exit below reports "the pass ran" rather than looking like the
+            // option was never asked for.
+            composited = 0;
+            titles = string.Empty;
 
             var above = new List<Candidate>();
             var found = false;
@@ -492,8 +509,8 @@ namespace ProjectMQaMcp.Editor
             {
                 // The target was not in the enumeration at all - without knowing where it sits in the
                 // stack there is no safe answer about which windows are over it, so nothing is drawn.
-                result.notes.Add("includePopups: the target window was not found in the process window " +
-                                 "list, so no overlay could be placed with confidence");
+                Note(notes, "includePopups: the target window was not found in the process window " +
+                            "list, so no overlay could be placed with confidence");
                 return;
             }
 
@@ -533,14 +550,14 @@ namespace ProjectMQaMcp.Editor
 
                     if (!NativeMethods.PrintWindow(popup.handle, popupDc, NativeMethods.PW_RENDERFULLCONTENT))
                     {
-                        result.notes.Add("includePopups: '" + popup.title + "' refused PrintWindow and was left out");
+                        Note(notes, "includePopups: '" + popup.title + "' refused PrintWindow and was left out");
                         continue;
                     }
 
                     if (!NativeMethods.BitBlt(destinationDc, x0 - left, y0 - top, x1 - x0, y1 - y0,
                             popupDc, x0 - rect.left, y0 - rect.top, NativeMethods.SRCCOPY))
                     {
-                        result.notes.Add("includePopups: '" + popup.title + "' could not be blitted into the frame");
+                        Note(notes, "includePopups: '" + popup.title + "' could not be blitted into the frame");
                         continue;
                     }
 
@@ -554,8 +571,223 @@ namespace ProjectMQaMcp.Editor
                 }
             }
 
-            result.popupsComposited = drawn.Count;
-            result.popupTitles = string.Join(" | ", drawn.ToArray());
+            composited = drawn.Count;
+            titles = string.Join(" | ", drawn.ToArray());
+        }
+
+        private static void Note(List<string> notes, string message)
+        {
+            if (notes != null)
+            {
+                notes.Add(message);
+            }
+        }
+
+        /// <summary>
+        /// Captures one OS window by handle and writes the PNG, without calling into Unity at any point.
+        ///
+        /// This is the path that works while a modal dialog owns the main thread. It takes a handle
+        /// rather than an EditorWindow because resolving a window to a handle needs Unity - so the
+        /// handle has to have been resolved earlier, which is what <see cref="LastCapturedHwnd"/> is for.
+        /// </summary>
+        internal static bool CaptureHandle(IntPtr hwnd, bool includePopups, string outputPath,
+            List<string> notes, out int width, out int height, out int composited, out string titles,
+            out string failure)
+        {
+            width = 0;
+            height = 0;
+            composited = -1;
+            titles = string.Empty;
+            failure = null;
+
+            if (hwnd == IntPtr.Zero || !NativeMethods.IsWindow(hwnd))
+            {
+                failure = "The window handle is not a live window.";
+                return false;
+            }
+
+            NativeMethods.RECT rect;
+            if (!NativeMethods.GetWindowRect(hwnd, out rect))
+            {
+                failure = "GetWindowRect failed for the target handle.";
+                return false;
+            }
+
+            width = rect.Width;
+            height = rect.Height;
+            if (width <= 0 || height <= 0)
+            {
+                failure = "The target window has an empty rect.";
+                return false;
+            }
+
+            var screenDc = NativeMethods.GetDC(IntPtr.Zero);
+            if (screenDc == IntPtr.Zero)
+            {
+                failure = "Could not get a screen DC.";
+                return false;
+            }
+
+            var memoryDc = IntPtr.Zero;
+            var bitmap = IntPtr.Zero;
+            var previous = IntPtr.Zero;
+            try
+            {
+                memoryDc = NativeMethods.CreateCompatibleDC(screenDc);
+                if (memoryDc == IntPtr.Zero) { failure = "CreateCompatibleDC failed."; return false; }
+
+                bitmap = NativeMethods.CreateCompatibleBitmap(screenDc, width, height);
+                if (bitmap == IntPtr.Zero) { failure = "CreateCompatibleBitmap failed."; return false; }
+
+                previous = NativeMethods.SelectObject(memoryDc, bitmap);
+
+                if (!NativeMethods.PrintWindow(hwnd, memoryDc, NativeMethods.PW_RENDERFULLCONTENT))
+                {
+                    failure = "PrintWindow refused the target window.";
+                    return false;
+                }
+
+                if (includePopups)
+                {
+                    CompositePopups(hwnd, memoryDc, rect.left, rect.top, width, height, notes,
+                        out composited, out titles);
+                }
+
+                var header = new NativeMethods.BITMAPINFO
+                {
+                    bmiHeader = new NativeMethods.BITMAPINFOHEADER
+                    {
+                        biSize = (uint)Marshal.SizeOf(typeof(NativeMethods.BITMAPINFOHEADER)),
+                        biWidth = width,
+                        biHeight = -height, // negative: top-down rows, which is what the encoder expects
+                        biPlanes = 1,
+                        biBitCount = 32,
+                        biCompression = NativeMethods.BI_RGB,
+                    },
+                    bmiColors = new uint[4],
+                };
+
+                var buffer = new byte[width * height * 4];
+                if (NativeMethods.GetDIBits(memoryDc, bitmap, 0, (uint)height, buffer, ref header,
+                        NativeMethods.DIB_RGB_COLORS) == 0)
+                {
+                    failure = "GetDIBits returned no scanlines.";
+                    return false;
+                }
+
+                ThreadSafePng.WriteBgra(outputPath, buffer, width, height);
+                return true;
+            }
+            catch (Exception e)
+            {
+                failure = e.GetType().Name + ": " + e.Message;
+                return false;
+            }
+            finally
+            {
+                if (previous != IntPtr.Zero) NativeMethods.SelectObject(memoryDc, previous);
+                if (bitmap != IntPtr.Zero) NativeMethods.DeleteObject(bitmap);
+                if (memoryDc != IntPtr.Zero) NativeMethods.DeleteDC(memoryDc);
+                NativeMethods.ReleaseDC(IntPtr.Zero, screenDc);
+            }
+        }
+
+        /// <summary>
+        /// Picks a base window for an off-thread capture when the caller named none: the largest
+        /// visible top-level window of this process, which is the main editor window in practice.
+        /// </summary>
+        internal static IntPtr LargestProcessWindow()
+        {
+            var best = IntPtr.Zero;
+            var bestArea = 0L;
+
+            foreach (var candidate in EnumerateProcessWindows())
+            {
+                NativeMethods.RECT rect;
+                if (!NativeMethods.GetWindowRect(candidate.handle, out rect)) continue;
+
+                var area = (long)rect.Width * rect.Height;
+                if (area > bestArea)
+                {
+                    bestArea = area;
+                    best = candidate.handle;
+                }
+            }
+
+            return best;
+        }
+
+        /// <summary>Window rect as "x,y,w,h" in physical pixels, for reporting where things actually are.</summary>
+        internal static string DescribeRect(IntPtr hwnd)
+        {
+            NativeMethods.RECT rect;
+            if (hwnd == IntPtr.Zero || !NativeMethods.GetWindowRect(hwnd, out rect))
+            {
+                return string.Empty;
+            }
+
+            return rect.left.ToString(CultureInfo.InvariantCulture) + "," +
+                   rect.top.ToString(CultureInfo.InvariantCulture) + "," +
+                   rect.Width.ToString(CultureInfo.InvariantCulture) + "," +
+                   rect.Height.ToString(CultureInfo.InvariantCulture);
+        }
+
+        /// <summary>Title of a window, for reporting which one was chosen.</summary>
+        internal static string DescribeTitle(IntPtr hwnd)
+        {
+            if (hwnd == IntPtr.Zero) return string.Empty;
+            var text = new StringBuilder(256);
+            NativeMethods.GetWindowText(hwnd, text, text.Capacity);
+            return text.ToString();
+        }
+
+        /// <summary>The first visible Win32 dialog box of this process, or zero when none is up.</summary>
+        internal static IntPtr FindProcessDialog()
+        {
+            foreach (var candidate in EnumerateProcessWindows())
+            {
+                var className = new StringBuilder(64);
+                NativeMethods.GetClassName(candidate.handle, className, className.Capacity);
+                if (className.ToString() == "#32770")
+                {
+                    return candidate.handle;
+                }
+            }
+
+            return IntPtr.Zero;
+        }
+
+        /// <summary>
+        /// Whether two windows overlap on screen.
+        ///
+        /// This decides whether an off-thread capture will actually contain the dialog it is being
+        /// taken for. A dialog that opened away from the window being photographed would simply be
+        /// absent from the frame, and a caller could not tell that from a dialog that never appeared.
+        /// </summary>
+        internal static bool WindowsOverlap(IntPtr a, IntPtr b)
+        {
+            NativeMethods.RECT ra, rb;
+            if (!NativeMethods.GetWindowRect(a, out ra) || !NativeMethods.GetWindowRect(b, out rb))
+            {
+                return false;
+            }
+
+            return ra.left < rb.right && ra.right > rb.left && ra.top < rb.bottom && ra.bottom > rb.top;
+        }
+
+        /// <summary>Finds a visible top-level window of this process whose title contains the text.</summary>
+        internal static IntPtr FindProcessWindowByTitle(string fragment)
+        {
+            foreach (var candidate in EnumerateProcessWindows())
+            {
+                if (!string.IsNullOrEmpty(candidate.title) &&
+                    candidate.title.IndexOf(fragment, StringComparison.OrdinalIgnoreCase) >= 0)
+                {
+                    return candidate.handle;
+                }
+            }
+
+            return IntPtr.Zero;
         }
 
         /// <summary>Reports whether something else is drawn over the middle of the target rect.</summary>
@@ -1062,6 +1294,9 @@ namespace ProjectMQaMcp.Editor
             internal static extern bool IsWindowVisible(IntPtr hwnd);
 
             [DllImport("user32.dll", SetLastError = true)]
+            internal static extern bool IsWindow(IntPtr hwnd);
+
+            [DllImport("user32.dll", SetLastError = true)]
             internal static extern bool IsIconic(IntPtr hwnd);
 
             [DllImport("user32.dll", SetLastError = true)]
@@ -1075,6 +1310,9 @@ namespace ProjectMQaMcp.Editor
 
             [DllImport("user32.dll", SetLastError = true, CharSet = CharSet.Unicode, EntryPoint = "GetWindowTextW")]
             internal static extern int GetWindowText(IntPtr hwnd, StringBuilder text, int count);
+
+            [DllImport("user32.dll", SetLastError = true, CharSet = CharSet.Unicode, EntryPoint = "GetClassNameW")]
+            internal static extern int GetClassName(IntPtr hwnd, StringBuilder name, int count);
 
             [DllImport("user32.dll", SetLastError = true)]
             internal static extern bool PrintWindow(IntPtr hwnd, IntPtr hdc, int flags);

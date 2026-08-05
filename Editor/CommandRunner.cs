@@ -83,7 +83,16 @@ namespace ProjectMQaMcp.Editor
             {
                 foreach (var requestPath in Directory.GetFiles(requestsDir, "*.json").OrderBy(File.GetCreationTimeUtc))
                 {
-                    ProcessRequest(requestPath);
+                    // Claimed by rename before it is read, because OffThreadBridge is reading the same
+                    // folder for the commands that work while this thread is blocked. A rename is
+                    // atomic, so exactly one of the two gets each request.
+                    var claimed = OffThreadBridge.TryClaim(requestPath);
+                    if (claimed == null)
+                    {
+                        continue;
+                    }
+
+                    ProcessRequest(claimed);
                 }
             }
             finally
@@ -2721,7 +2730,14 @@ namespace ProjectMQaMcp.Editor
             {
                 var processedDir = Path.Combine(GetCommandRoot(), "processed");
                 Directory.CreateDirectory(processedDir);
-                var archivePath = Path.Combine(processedDir, Path.GetFileName(requestPath));
+                // Drop the claim suffix so the archive keeps the request's own name.
+                var name = Path.GetFileName(requestPath);
+                if (name.EndsWith(OffThreadBridge.ClaimSuffix, StringComparison.Ordinal))
+                {
+                    name = name.Substring(0, name.Length - OffThreadBridge.ClaimSuffix.Length);
+                }
+
+                var archivePath = Path.Combine(processedDir, name);
                 if (File.Exists(archivePath))
                 {
                     File.Delete(archivePath);
