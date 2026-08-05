@@ -68,6 +68,9 @@ namespace ProjectMQaMcp.Editor
             "editor_prefs_set",
             "editor_play_mode",
             "exit_play_mode",
+            "editor_dialog_click",
+            "editor_dialog_status",
+            "editor_dialog_list",
         };
 
         internal static bool TryExecute(string command, CommandParameters p, CommandResponse response)
@@ -103,7 +106,7 @@ namespace ProjectMQaMcp.Editor
                 case "editor_prefs_set": PrefsSet(p, response); return true;
                 case "editor_play_mode": PlayMode(p, response); return true;
                 case "exit_play_mode": ExitPlayMode(response); return true;
-                default: return false;
+                default: return EditorDialogBridge.TryExecute(command, p, response);
             }
         }
 
@@ -866,7 +869,29 @@ namespace ProjectMQaMcp.Editor
         private static void Key(CommandParameters p, CommandResponse response)
         {
             var window = ResolveWindowOrThrow(p);
-            window.Focus();
+
+            // Focus has to be taken and put back around EditorWindow.Focus(), because that call clears
+            // the panel's focused element - measured: focusedElement read as 'keyArea' before the call
+            // and null immediately after, on a window that was already the focused one. Keys are routed
+            // to whatever holds focus, so letting it stay cleared sends every key past the element that
+            // was supposed to receive it.
+            var focusRoot = window.rootVisualElement;
+            var focusController = focusRoot != null && focusRoot.panel != null
+                ? focusRoot.panel.focusController
+                : null;
+            var focusedBefore = focusController != null ? focusController.focusedElement : null;
+
+            if (!p.noFocus)
+            {
+                window.Focus();
+            }
+
+            var focusRestored = false;
+            if (focusedBefore != null && focusController != null && focusController.focusedElement == null)
+            {
+                focusedBefore.Focus();
+                focusRestored = ReferenceEquals(focusController.focusedElement, focusedBefore);
+            }
 
             var modifiers = ParseModifiers(p.modifiers);
             var keyCode = KeyCode.None;
@@ -914,8 +939,47 @@ namespace ProjectMQaMcp.Editor
             response.AddOutput("keyCode", keyCode.ToString());
             response.AddOutput("text", text);
             response.AddOutput("eventsSent", sent.ToString(CultureInfo.InvariantCulture));
+            response.AddOutput("panelFocusBefore", DescribeFocusable(focusedBefore));
+            response.AddOutput("panelFocusRestored", focusRestored ? "true" : "false");
+            response.AddOutput("panelFocusAfter", DescribeFocusable(
+                focusController != null ? focusController.focusedElement : null));
+
+            // The single most useful line when a UI Toolkit window ignores a key: with nothing focused,
+            // Unity routes keys to the panel container above rootVisualElement, so a callback registered
+            // on rootVisualElement or any child is not on the propagation path and cannot fire. That is
+            // how a real keyboard behaves too, so it is reported rather than worked around.
+            if (focusedBefore == null && focusController != null && focusController.focusedElement == null)
+            {
+                response.AddOutput("panelFocusNote",
+                    "No element held focus, so the key went to the panel container above rootVisualElement " +
+                    "and no element callback could fire. Focus the receiving element first - click it with " +
+                    "editor_click, or call its focus method with editor_invoke_method - then resend.");
+            }
         }
 
+        private static string DescribeFocusable(Focusable focusable)
+        {
+            if (focusable == null)
+            {
+                return string.Empty;
+            }
+
+            var element = focusable as VisualElement;
+            if (element == null)
+            {
+                return focusable.GetType().Name;
+            }
+
+            return string.IsNullOrEmpty(element.name) ? element.GetType().Name : element.name;
+        }
+
+        // There is deliberately no KeyDownEvent.GetPooled conversion here, and it should not come back.
+        // It was written, measured and removed in one sitting. Sending the converted event to the
+        // focused element on top of the IMGUI send delivered every key twice: with the conversion off
+        // a Ctrl+Z moved the probe's UI Toolkit counter 0 -> 1, with it on 0 -> 2, and a two-character
+        // text send logged eight key events instead of four. The IMGUI send already reaches UI Toolkit
+        // receivers on its own once focus survives the trip - which is the whole of the fix, and the
+        // same conclusion the drag path reached in 9108169.
         private static EventModifiers ParseModifiers(string modifiers)
         {
             var result = EventModifiers.None;
@@ -1780,6 +1844,7 @@ namespace ProjectMQaMcp.Editor
                 includeChrome = p.includeChrome,
                 settleMs = p.captureSettleMs > 0 ? p.captureSettleMs : 24,
                 allowUniform = p.allowUniform,
+                includePopups = p.includePopups,
             };
         }
 
@@ -2064,7 +2129,6 @@ namespace ProjectMQaMcp.Editor
             var modifiers = ParseModifiers(p.modifiers);
             var hoverMs = Mathf.Clamp(p.hoverMs > 0 ? p.hoverMs : 400, 0, 10000);
             var drop = string.IsNullOrEmpty(p.performDrop) || ParseBool(p.performDrop);
-            var panelEvents = string.IsNullOrEmpty(p.panelEvents) || ParseBool(p.panelEvents);
 
             string framesDir = null;
             EditorWindowCapture.Options captureOptions = null;
@@ -2115,6 +2179,14 @@ namespace ProjectMQaMcp.Editor
 
             // Short moves that stay on the source. A tool arms its drag on the first move that clears its
             // own threshold, so these have to be real moves with a real delta, not one jump to the target.
+            //
+            // These go rightwards regardless of where the drop is, which looks wrong for a vertical
+            // gesture and was the first suspect for "a 26px drag does nothing". It is not the cause, and
+            // aiming them at the target was tried and taken back out. Measured on a rail of 26px rows,
+            // arming rightwards and arming towards the target both put the row exactly one slot down,
+            // on a 126px rail and again on a 34px one - the source arms on the second nudge, 10px in,
+            // long before the walk could leave it. The real cause was the duplicate delivery described
+            // on SendDragEvent. Do not aim these without a measurement that shows a source they miss.
             var previous = from;
             foreach (var nudge in new[] { 4f, 10f, 18f, 28f })
             {
@@ -2150,7 +2222,7 @@ namespace ProjectMQaMcp.Editor
                 armedData = DragAndDrop.GetGenericData(p.genericDataKey);
             }
 
-            var updatedSent = SendDragEvent(window, EventType.DragUpdated, to, to - previous, modifiers, panelEvents);
+            var updatedSent = SendDragEvent(window, EventType.DragUpdated, to, to - previous, modifiers);
             record("dragUpdated", to, to - previous, updatedSent);
 
             if (hoverMs > 0)
@@ -2159,19 +2231,19 @@ namespace ProjectMQaMcp.Editor
             }
 
             // Second one after the pause: this is the frame where the highlight is on screen.
-            var hoverSent = SendDragEvent(window, EventType.DragUpdated, to, Vector2.zero, modifiers, panelEvents);
+            var hoverSent = SendDragEvent(window, EventType.DragUpdated, to, Vector2.zero, modifiers);
             record("hover", to, Vector2.zero, hoverSent);
 
             var performSent = false;
             if (drop)
             {
-                performSent = SendDragEvent(window, EventType.DragPerform, to, Vector2.zero, modifiers, panelEvents);
+                performSent = SendDragEvent(window, EventType.DragPerform, to, Vector2.zero, modifiers);
                 record("dragPerform", to, Vector2.zero, performSent);
             }
 
             // Always close the session, dropped or not - a tool that skipped DragExited would keep its
             // highlight lit and refuse the next drag.
-            var exitedSent = SendDragEvent(window, EventType.DragExited, to, Vector2.zero, modifiers, panelEvents);
+            var exitedSent = SendDragEvent(window, EventType.DragExited, to, Vector2.zero, modifiers);
             record("dragExited", to, Vector2.zero, exitedSent);
 
             var upSent = SendEvent(window, new Event
@@ -2200,8 +2272,8 @@ namespace ProjectMQaMcp.Editor
             response.AddOutput("performDrop", drop ? "true" : "false");
             response.AddOutput("eventCount", eventCount.ToString(CultureInfo.InvariantCulture));
             response.AddOutput("events", events.ToString());
-            response.AddOutput("panelEvents", panelEvents ? "true" : "false");
             response.AddOutput("dragUpdatedReturned", updatedSent ? "true" : "false");
+            response.AddOutput("dragDistance", F((to - from).magnitude));
 
             if (!string.IsNullOrEmpty(p.genericDataKey))
             {
@@ -2237,75 +2309,32 @@ namespace ProjectMQaMcp.Editor
         }
 
         /// <summary>
-        /// Sends one drag event, and when panelEvents is on also hands it straight to the UI Toolkit
-        /// element under the point.
-        ///
-        /// EditorWindow.SendEvent alone is not enough for a UI Toolkit receiver. The IMGUI event goes
-        /// down the IMGUI path, and a DragUpdatedEvent callback registered on a VisualElement never sees
-        /// it - measured on a drop target whose highlight stayed off while the same gesture from a real
-        /// mouse lit it. Picking the element and sending the converted event reaches those callbacks.
-        /// Both are sent because a window can mix IMGUI and UI Toolkit, and a receiver that already
-        /// handled the IMGUI one simply ignores the second.
+        /// Sends one drag event to the window.
         /// </summary>
+        /// <remarks>
+        /// There used to be a second send here that converted the event and handed it to the UI Toolkit
+        /// element under the point. It is gone, and it should not come back: it did not add a delivery,
+        /// it duplicated one. Measured on a rail of 26px rows with a DragPerformEvent callback, the same
+        /// gesture produced dragUpdated 4 / dragPerform 2 / drops 2 with it on, and 2 / 1 / 1 with it
+        /// off. Two drops is not a louder version of one - moving a row to its neighbour twice puts it
+        /// back where it started, which is exactly the "the short drag does nothing" report that started
+        /// this, and a longer drag came out at the wrong index rather than failing visibly.
+        ///
+        /// 9108169 already recorded the measurement that the IMGUI send reaches these receivers on its
+        /// own ("the highlight still came on and the drop still landed, byte-for-byte the same capture
+        /// frames"). That commit removed the ancestor walk but left the second send in place. This
+        /// removes the rest of it.
+        /// </remarks>
         private static bool SendDragEvent(EditorWindow window, EventType type, Vector2 point, Vector2 delta,
-            EventModifiers modifiers, bool panelEvents)
+            EventModifiers modifiers)
         {
-            var imgui = new Event
+            return SendEvent(window, new Event
             {
                 type = type,
                 mousePosition = point,
                 modifiers = modifiers,
                 delta = delta,
-            };
-
-            var sent = SendEvent(window, imgui);
-
-            if (!panelEvents)
-            {
-                return sent;
-            }
-
-            var root = window.rootVisualElement;
-            if (root == null || root.panel == null)
-            {
-                return sent;
-            }
-
-            // The panel measures from the window's content corner, so the tab strip offset that the
-            // IMGUI coordinates carry has to come back off before picking.
-            var border = BorderSize(window, null);
-            var panelPoint = border == null
-                ? point
-                : point - new Vector2(border.left, border.top);
-
-            var target = root.panel.Pick(panelPoint) ?? root;
-
-            EventBase converted;
-            switch (type)
-            {
-                case EventType.DragUpdated:
-                    converted = DragUpdatedEvent.GetPooled(imgui);
-                    break;
-
-                case EventType.DragPerform:
-                    converted = DragPerformEvent.GetPooled(imgui);
-                    break;
-
-                case EventType.DragExited:
-                    converted = DragExitedEvent.GetPooled(imgui);
-                    break;
-
-                default:
-                    return sent;
-            }
-
-            using (converted)
-            {
-                converted.target = target;
-                target.SendEvent(converted);
-            }
-
-            return sent;
+            });
         }
 
         /// <summary>

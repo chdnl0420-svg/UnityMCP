@@ -55,6 +55,12 @@ namespace ProjectMQaMcp.Editor
 
             /// <summary>Treat a single-colour capture as a real result instead of trying the next backend.</summary>
             public bool allowUniform;
+
+            /// <summary>
+            /// Draw the process's own popups and modal dialogs that sit over the target into the same
+            /// image, instead of returning the target as if nothing were on top of it.
+            /// </summary>
+            public bool includePopups;
         }
 
         internal sealed class Result
@@ -85,6 +91,9 @@ namespace ProjectMQaMcp.Editor
             public string mappingBasis = "none";
             public int systemDpi;
             public string visibleView = string.Empty;
+
+            public int popupsComposited = -1;   // -1 = includePopups was not asked for
+            public string popupTitles = string.Empty;
 
             public readonly List<string> notes = new List<string>();
             public readonly List<string> attempts = new List<string>();
@@ -253,7 +262,7 @@ namespace ProjectMQaMcp.Editor
                 Color32[] pixels;
                 int width, height;
                 bool wholeWindowUniform;
-                if (!CaptureNative(backend, os, viewRect, out pixels, out width, out height, out wholeWindowUniform, result))
+                if (!CaptureNative(backend, os, viewRect, options, out pixels, out width, out height, out wholeWindowUniform, result))
                 {
                     return false;
                 }
@@ -291,7 +300,7 @@ namespace ProjectMQaMcp.Editor
             }
         }
 
-        private static bool CaptureNative(string backend, OsWindow os, Rect viewRect,
+        private static bool CaptureNative(string backend, OsWindow os, Rect viewRect, Options options,
             out Color32[] pixels, out int width, out int height, out bool wholeWindowUniform, Result result)
         {
             pixels = null;
@@ -311,7 +320,7 @@ namespace ProjectMQaMcp.Editor
             }
 
             byte[] bgra;
-            if (!ReadWindowBits(backend, os.handle, srcLeft, srcTop, srcWidth, srcHeight, out bgra))
+            if (!ReadWindowBits(backend, os.handle, srcLeft, srcTop, srcWidth, srcHeight, options, result, out bgra))
             {
                 result.attempts.Add(backend + ": the bit blit failed (last error " +
                                     Marshal.GetLastWin32Error().ToString(CultureInfo.InvariantCulture) + ")");
@@ -363,7 +372,7 @@ namespace ProjectMQaMcp.Editor
         }
 
         private static bool ReadWindowBits(string backend, IntPtr hwnd, int left, int top, int width, int height,
-            out byte[] bgra)
+            Options options, Result result, out byte[] bgra)
         {
             bgra = null;
 
@@ -393,6 +402,15 @@ namespace ProjectMQaMcp.Editor
                     if (!NativeMethods.PrintWindow(hwnd, memoryDc, NativeMethods.PW_RENDERFULLCONTENT))
                     {
                         return false;
+                    }
+
+                    // That surface is the target alone - a confirmation box or a right-click menu is a
+                    // separate window and simply is not in it. Each one is asked for its own pixels the
+                    // same way and drawn into this bitmap at its offset. Only for this backend: the
+                    // screen backend reads whatever is already on top, so it has them by construction.
+                    if (options != null && options.includePopups)
+                    {
+                        CompositePopups(hwnd, memoryDc, left, top, width, height, result);
                     }
                 }
                 else
@@ -436,6 +454,108 @@ namespace ProjectMQaMcp.Editor
                 if (memoryDc != IntPtr.Zero) NativeMethods.DeleteDC(memoryDc);
                 NativeMethods.ReleaseDC(IntPtr.Zero, screenDc);
             }
+        }
+
+        /// <summary>
+        /// Draws this process's popups and modal dialogs that sit over the target window into the
+        /// target's own bitmap, so one image shows what the screen shows.
+        ///
+        /// Each popup is asked for its pixels with PrintWindow, exactly like the target was. It is
+        /// deliberately not a desktop read: a locked or disconnected screen hands back white, and a
+        /// screen read would also pull in whatever unrelated application happens to be sitting there.
+        /// Only windows above the target in Z-order are drawn, and they are drawn bottom-most first so
+        /// the stacking in the image matches the stacking on screen.
+        /// </summary>
+        private static void CompositePopups(IntPtr target, IntPtr destinationDc, int left, int top,
+            int width, int height, Result result)
+        {
+            // Claim the counter up front so every exit below reports "the pass ran" rather than
+            // looking like the option was never asked for.
+            result.popupsComposited = 0;
+
+            var above = new List<Candidate>();
+            var found = false;
+
+            // EnumWindows walks front to back, so everything seen before the target is over it.
+            foreach (var candidate in EnumerateProcessWindows())
+            {
+                if (candidate.handle == target)
+                {
+                    found = true;
+                    break;
+                }
+
+                above.Add(candidate);
+            }
+
+            if (!found)
+            {
+                // The target was not in the enumeration at all - without knowing where it sits in the
+                // stack there is no safe answer about which windows are over it, so nothing is drawn.
+                result.notes.Add("includePopups: the target window was not found in the process window " +
+                                 "list, so no overlay could be placed with confidence");
+                return;
+            }
+
+            var drawn = new List<string>();
+
+            // Bottom-most of the overlapping windows first, so a menu over a dialog stays over it.
+            for (var i = above.Count - 1; i >= 0; i--)
+            {
+                var popup = above[i];
+
+                NativeMethods.RECT rect;
+                if (!NativeMethods.GetWindowRect(popup.handle, out rect)) continue;
+
+                var popupWidth = rect.Width;
+                var popupHeight = rect.Height;
+                if (popupWidth <= 0 || popupHeight <= 0) continue;
+
+                // Overlap in the target's bitmap space.
+                var x0 = Math.Max(rect.left, left);
+                var y0 = Math.Max(rect.top, top);
+                var x1 = Math.Min(rect.right, left + width);
+                var y1 = Math.Min(rect.bottom, top + height);
+                if (x1 <= x0 || y1 <= y0) continue;
+
+                var popupDc = IntPtr.Zero;
+                var popupBitmap = IntPtr.Zero;
+                var popupPrevious = IntPtr.Zero;
+                try
+                {
+                    popupDc = NativeMethods.CreateCompatibleDC(destinationDc);
+                    if (popupDc == IntPtr.Zero) continue;
+
+                    popupBitmap = NativeMethods.CreateCompatibleBitmap(destinationDc, popupWidth, popupHeight);
+                    if (popupBitmap == IntPtr.Zero) continue;
+
+                    popupPrevious = NativeMethods.SelectObject(popupDc, popupBitmap);
+
+                    if (!NativeMethods.PrintWindow(popup.handle, popupDc, NativeMethods.PW_RENDERFULLCONTENT))
+                    {
+                        result.notes.Add("includePopups: '" + popup.title + "' refused PrintWindow and was left out");
+                        continue;
+                    }
+
+                    if (!NativeMethods.BitBlt(destinationDc, x0 - left, y0 - top, x1 - x0, y1 - y0,
+                            popupDc, x0 - rect.left, y0 - rect.top, NativeMethods.SRCCOPY))
+                    {
+                        result.notes.Add("includePopups: '" + popup.title + "' could not be blitted into the frame");
+                        continue;
+                    }
+
+                    drawn.Add(string.IsNullOrEmpty(popup.title) ? "(untitled)" : popup.title);
+                }
+                finally
+                {
+                    if (popupPrevious != IntPtr.Zero) NativeMethods.SelectObject(popupDc, popupPrevious);
+                    if (popupBitmap != IntPtr.Zero) NativeMethods.DeleteObject(popupBitmap);
+                    if (popupDc != IntPtr.Zero) NativeMethods.DeleteDC(popupDc);
+                }
+            }
+
+            result.popupsComposited = drawn.Count;
+            result.popupTitles = string.Join(" | ", drawn.ToArray());
         }
 
         /// <summary>Reports whether something else is drawn over the middle of the target rect.</summary>
@@ -855,6 +975,15 @@ namespace ProjectMQaMcp.Editor
             response.AddOutput(prefix + "osWindowRect", EditorToolBridge.RectJson(result.hwndRect));
             response.AddOutput(prefix + "mappingBasis", result.mappingBasis);
             response.AddOutput(prefix + "systemDpi", result.systemDpi.ToString(CultureInfo.InvariantCulture));
+
+            if (result.popupsComposited >= 0)
+            {
+                // Zero is a real answer, not a missing one: it says the overlay pass ran and found
+                // nothing over the window, which is different from never having asked for it.
+                response.AddOutput(prefix + "popupsComposited",
+                    result.popupsComposited.ToString(CultureInfo.InvariantCulture));
+                response.AddOutput(prefix + "popupTitles", result.popupTitles ?? string.Empty);
+            }
 
             if (result.notes.Count > 0)
             {

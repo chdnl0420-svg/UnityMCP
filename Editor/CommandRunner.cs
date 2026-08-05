@@ -2840,6 +2840,22 @@ namespace ProjectMQaMcp.Editor
         public bool includeChrome;
         public int captureSettleMs;
         public bool allowUniform;
+        // Composite this process's popups and modal dialogs that sit over the target into the frame,
+        // so a confirmation box or a context menu is in the same picture as the window it covers.
+        public bool includePopups;
+
+        // --- modal dialogs (editor_dialog_click) ---
+        // Which dialog to act on, which button to press, and how long to wait for it to appear. The
+        // wait exists because the editor stops ticking while a modal is up, so the watcher has to be
+        // armed before the command that raises it.
+        public string dialogTitle;
+        public string buttonLabel;
+        public int buttonIndex;
+        public string buttonIndexText;
+        public int armMs;
+        // What to do when no button matches: "cancel" (default) presses the last button so the editor
+        // is handed back, "leave" presses nothing and leaves the editor blocked.
+        public string onMiss;
 
         // --- drag (editor_drag / editor_drag_capture). The to/from target is toX/toY above. ---
         public float fromX;

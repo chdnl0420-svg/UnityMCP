@@ -22083,7 +22083,8 @@ function registerEditorTools(server2) {
       includeChrome: external_exports.boolean().optional().describe("Include the dock tab strip around the window. Off by default, so only the window's own content is captured."),
       captureBackend: external_exports.enum(["auto", "printwindow", "screen", "framebuffer"]).optional().describe("Force one backend instead of trying them in order. For diagnosing a bad capture."),
       captureSettleMs: external_exports.number().int().min(0).max(2e3).optional().describe("Wait this long after the repaint before reading pixels (default 24)."),
-      allowUniform: external_exports.boolean().optional().describe("Accept a single-colour image instead of treating it as no pixels. Use for a legitimately blank window.")
+      allowUniform: external_exports.boolean().optional().describe("Accept a single-colour image instead of treating it as no pixels. Use for a legitimately blank window."),
+      includePopups: external_exports.boolean().optional().describe("Draw this process's popups and modal dialogs that sit over the target into the same image. A confirmation box or a right-click menu is a separate OS window and is otherwise absent from the picture. Each overlay is read with PrintWindow like the target itself, never from the desktop, so a locked screen cannot turn it white and no other application can appear in the frame. Reports how many were composited and their titles.")
     },
     async (params) => {
       const config2 = resolveProjectConfig(params);
@@ -22093,7 +22094,8 @@ function registerEditorTools(server2) {
         includeChrome: params.includeChrome ?? false,
         captureBackend: params.captureBackend ?? "auto",
         captureSettleMs: params.captureSettleMs ?? 0,
-        allowUniform: params.allowUniform ?? false
+        allowUniform: params.allowUniform ?? false,
+        includePopups: params.includePopups ?? false
       });
       const bytes = await fileSize(outputPath);
       const exists = await pathExists(outputPath);
@@ -22135,7 +22137,6 @@ function registerEditorTools(server2) {
       coordinateSpace: external_exports.enum(["content", "host"]).optional().describe(`"content" (default) treats 0,0 as the window's content corner and adds the dock tab strip offset automatically; "host" sends raw host-view coordinates.`),
       hoverMs: external_exports.number().int().min(0).max(1e4).optional().describe("How long to hold over the target before dropping, so the highlight is painted and capturable (default 400)."),
       performDrop: external_exports.boolean().optional().describe("Actually drop (default true). False hovers and then leaves, which captures the highlight without changing anything."),
-      panelEvents: external_exports.boolean().optional().describe("Also hand the drag events to the UI Toolkit element under the point (default true). An IMGUI-only send never reaches a DragUpdatedEvent callback registered on a VisualElement, which is what a UI Toolkit drop target uses."),
       genericDataKey: external_exports.string().optional().describe("The DragAndDrop.SetGenericData key the receiving tool reads. Naming it reports whether the source armed the drag - the first thing to know when a drop does nothing."),
       genericDataJson: external_exports.string().optional().describe("Payload to stand in with when the source did not arm one. Lights a highlight for a screenshot, but a tool that mutates the dragged item will mutate this copy, not its own model - real edits need the source to start the drag itself."),
       genericDataType: external_exports.string().optional().describe('Full type name to deserialise genericDataJson into (e.g. "MyTool.DragPayload"). Omit to pass the JSON through as a raw string.'),
@@ -22156,7 +22157,6 @@ function registerEditorTools(server2) {
         coordinateSpace: params.coordinateSpace ?? "content",
         hoverMs: params.hoverMs ?? 400,
         performDrop: params.performDrop ?? true ? "true" : "false",
-        panelEvents: params.panelEvents ?? true ? "true" : "false",
         genericDataKey: params.genericDataKey,
         genericDataJson: params.genericDataJson,
         genericDataType: params.genericDataType,
@@ -22465,19 +22465,52 @@ function registerEditorTools(server2) {
   );
   server2.tool(
     "unity_editor_key",
-    "Sends keyboard events to an editor tool window: text is typed character by character, and keyCode presses a named key such as Return or Escape. For filling text fields, unity_editor_set_field is more reliable because it does not depend on GUI focus.",
+    "Sends keyboard events to an editor tool window: text is typed character by character, and keyCode presses a named key such as Return or Escape. Reaches UI Toolkit KeyDownEvent handlers as well as IMGUI, because the panel's focused element is preserved across the focus call. A key only reaches an element callback if something holds focus - the response says what held it, and says so explicitly when nothing did. For filling text fields, unity_editor_set_field is still more reliable because it does not depend on focus at all.",
     {
       ...commonShape,
       ...windowShape,
       text: external_exports.string().optional(),
       keyCode: external_exports.string().optional().describe("UnityEngine.KeyCode name, e.g. Return, Escape, Tab, A."),
-      modifiers: external_exports.string().optional().describe("Comma separated: shift, control, alt, command.")
+      modifiers: external_exports.string().optional().describe("Comma separated: shift, control, alt, command."),
+      noFocus: external_exports.boolean().optional().describe("Do not focus the window first. Use when the caller has already put focus exactly where it wants it.")
     },
     async (params) => toToolResult(await runBridge(params, "editor_key", {
       text: params.text,
       keyCode: params.keyCode,
-      modifiers: params.modifiers
+      modifiers: params.modifiers,
+      noFocus: params.noFocus ?? false
     }))
+  );
+  server2.tool(
+    "unity_editor_dialog_click",
+    "Arms a watcher that presses a button on the next modal dialog to appear, then returns immediately. Arm it BEFORE sending the command that raises the dialog: while an EditorUtility.DisplayDialog is up the editor stops ticking and no bridge command can be read, so a dialog that is already on screen cannot be reached this way. The watcher runs on a background thread and reports what it pressed - read the outcome with unity_editor_dialog_status.",
+    {
+      ...commonShape,
+      buttonLabel: external_exports.string().optional().describe("Substring of the button text, matched case-insensitively. Preferred over index: it is checked against the real button and reported back."),
+      buttonIndex: external_exports.number().int().min(0).optional().describe("Zero-based button position, used when no label is given. 0 is the accept button, 1 the cancel one."),
+      dialogTitle: external_exports.string().optional().describe("Only act on a dialog whose title contains this. Required to target a Unity container window rather than a native dialog box."),
+      armMs: external_exports.number().int().min(500).max(12e4).optional().describe("How long to wait for the dialog to appear before giving up (default 15000)."),
+      onMiss: external_exports.enum(["cancel", "leave"]).optional().describe('What to do when no button matches. "cancel" (default) presses the last button - normally Cancel - so the editor starts ticking again, and reports missed=true so the press is not mistaken for a choice. "leave" presses nothing, which leaves the editor blocked until someone dismisses the dialog by hand.')
+    },
+    async (params) => toToolResult(await runBridge(params, "editor_dialog_click", {
+      buttonLabel: params.buttonLabel,
+      buttonIndexText: params.buttonIndex === void 0 ? void 0 : String(params.buttonIndex),
+      dialogTitle: params.dialogTitle,
+      armMs: params.armMs ?? 15e3,
+      onMiss: params.onMiss ?? "cancel"
+    }))
+  );
+  server2.tool(
+    "unity_editor_dialog_status",
+    "Reports what the armed dialog watcher saw and did: the dialog title, the buttons it offered, which label was pressed, whether it was pressed as a real button or by keyboard, and whether the dialog actually closed.",
+    { ...commonShape },
+    async (params) => toToolResult(await runBridge(params, "editor_dialog_status", {}))
+  );
+  server2.tool(
+    "unity_editor_dialog_list",
+    "Lists modal dialogs currently open in the editor process, with their buttons. Usually returns nothing by design - while a modal is up the editor does not tick, so this command cannot run. Useful for native dialogs that leave the editor running.",
+    { ...commonShape },
+    async (params) => toToolResult(await runBridge(params, "editor_dialog_list", {}))
   );
   server2.tool(
     "unity_editor_menu_execute",
