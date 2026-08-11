@@ -1005,7 +1005,7 @@ namespace ProjectMQaMcp.Editor
             return result;
         }
 
-        private static bool SendEvent(EditorWindow window, Event evt)
+        internal static bool SendEvent(EditorWindow window, Event evt)
         {
             var method = typeof(EditorWindow).GetMethod(
                 "SendEvent",

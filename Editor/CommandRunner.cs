@@ -21,7 +21,9 @@ namespace ProjectMQaMcp.Editor
         // package actually loaded the new bridge code (absence->presence is unambiguous).
         // 10: both command families in one bridge (runtime/NGUI + EditorToolBridge), and the
         // protocol version moved off the "bridgeVersion" key, which now carries build identity.
-        private const int BridgeProtocolVersion = 10;
+        // 11: ComponentWiringBridge - attach components and fill [SerializeField] slots, either
+        // through SerializedObject or through a real drag-and-drop onto a drawn ObjectField.
+        private const int BridgeProtocolVersion = 11;
         private const double PollIntervalSeconds = 0.1;
         private const float FallbackClickMaxNormalizedDistanceSqr = 0.18f;
         private const int FallbackClickMinSharedHierarchy = 3;
@@ -296,6 +298,11 @@ namespace ProjectMQaMcp.Editor
                         break;
                     }
 
+                    if (ComponentWiringBridge.TryExecute(request.command, parameters, response))
+                    {
+                        break;
+                    }
+
                     throw new NotSupportedException($"Unsupported command: {request.command}");
             }
         }
@@ -333,7 +340,8 @@ namespace ProjectMQaMcp.Editor
             return builtIn
                 .Concat(EditorToolBridge.SupportedCommands)
                 .Concat(TestRunnerBridge.SupportedCommands)
-                .Concat(CompileBridge.SupportedCommands);
+                .Concat(CompileBridge.SupportedCommands)
+                .Concat(ComponentWiringBridge.SupportedCommands);
         }
 
         private static void BatchExecute(CommandParameters parameters, CommandResponse response)
@@ -1525,7 +1533,24 @@ namespace ProjectMQaMcp.Editor
                     prefsValue = command.prefsValue,
                     assetPath = command.assetPath,
                     forceUpdate = command.forceUpdate,
-                    importRecursive = command.importRecursive
+                    importRecursive = command.importRecursive,
+                    // Component wiring: a UI pass sets dozens of fields, and sending them one request
+                    // at a time is the slow part, so these have to survive the batch hop.
+                    fieldPath = command.fieldPath,
+                    fieldValue = command.fieldValue,
+                    componentIndex = command.componentIndex,
+                    allowDuplicate = command.allowDuplicate,
+                    fieldKind = command.fieldKind,
+                    valuePath = command.valuePath,
+                    valueName = command.valueName,
+                    valueComponentName = command.valueComponentName,
+                    valueComponentIndex = command.valueComponentIndex,
+                    valueAssetPath = command.valueAssetPath,
+                    dropMode = command.dropMode,
+                    startDrag = command.startDrag,
+                    windowType = command.windowType,
+                    windowTitle = command.windowTitle,
+                    instanceId = command.instanceId
                 }
             };
         }
@@ -2852,6 +2877,26 @@ namespace ProjectMQaMcp.Editor
         public float originY;
 
         // --- per-window pixel capture (editor_window_capture / editor_drag_capture) ---
+        // --- component wiring (add_component / set_component_field / drag_object_to_field) ---
+        // The component that owns the field. componentName/fieldPath/fieldValue above are reused.
+        public int componentIndex;
+        public bool allowDuplicate;
+        // What kind of value fieldValue carries: objectRef (default), null, arraySize, int, float,
+        // bool, string or enum.
+        public string fieldKind;
+        // The object being assigned or dragged. Scene objects come from valuePath/valueName, assets
+        // from valueAssetPath; valueComponentName picks a component off that object instead of the
+        // GameObject itself.
+        public string valuePath;
+        public string valueName;
+        public string valueComponentName;
+        public int valueComponentIndex;
+        public string valueAssetPath;
+        // drag_object_to_field only: "probe" (default) draws the field in its own window so the drop
+        // point is exact, "window" drops at x/y in an already-open window.
+        public string dropMode;
+        public bool startDrag;
+
         public string captureBackend;
         public bool includeChrome;
         public int captureSettleMs;
@@ -2975,6 +3020,22 @@ namespace ProjectMQaMcp.Editor
         public string value;
         public string nameQuery;
         public string componentName;
+        // --- component wiring, mirrored from CommandParameters so a batch step can carry them ---
+        public string fieldPath;
+        public string fieldValue;
+        public int componentIndex;
+        public bool allowDuplicate;
+        public string fieldKind;
+        public string valuePath;
+        public string valueName;
+        public string valueComponentName;
+        public int valueComponentIndex;
+        public string valueAssetPath;
+        public string dropMode;
+        public bool startDrag;
+        public string windowType;
+        public string windowTitle;
+        public int instanceId;
         public string menuItemPath;
         public string typeName;
         public string methodName;
