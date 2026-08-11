@@ -52,6 +52,7 @@ namespace ProjectMQaMcp.Editor
                 case "get_component_field": GetComponentField(p, response); return true;
                 case "set_component_field": SetComponentField(p, response); return true;
                 case "drag_object_to_field": DragObjectToField(p, response); return true;
+                case "duplicate_object": DuplicateObject(p, response); return true;
             }
 
             return false;
@@ -393,6 +394,38 @@ namespace ProjectMQaMcp.Editor
             }
 
             return matches[index];
+        }
+
+        /// <summary>
+        /// Copies a scene object under another parent, keeping its local transform and active state.
+        /// Prefab authoring needs this when one slot holds the only copy of an effect and the other
+        /// slots must each own theirs; wiring alone cannot do it because a field can only point at
+        /// an object that already exists.
+        ///
+        /// targetPath/targetName = what to copy, valuePath/valueName = the new parent,
+        /// fieldValue = optional name for the copy (defaults to the source name, without "(Clone)").
+        /// </summary>
+        private static void DuplicateObject(CommandParameters p, CommandResponse response)
+        {
+            var source = FindSceneObject(p.targetPath, p.targetName);
+            var parent = FindSceneObject(p.valuePath, p.valueName);
+
+            var clone = Object.Instantiate(source, parent.transform);
+
+            clone.name = string.IsNullOrEmpty(p.fieldValue) ? source.name : p.fieldValue;
+            clone.transform.localPosition = source.transform.localPosition;
+            clone.transform.localRotation = source.transform.localRotation;
+            clone.transform.localScale = source.transform.localScale;
+            clone.SetActive(source.activeSelf);
+
+            Undo.RegisterCreatedObjectUndo(clone, "duplicate_object");
+            EditorUtility.SetDirty(parent);
+
+            response.AddOutput("source", HierarchyPath(source));
+            response.AddOutput("parent", HierarchyPath(parent));
+            response.AddOutput("clone", HierarchyPath(clone));
+            response.AddOutput("cloneName", clone.name);
+            response.AddOutput("activeSelf", clone.activeSelf.ToString());
         }
 
         private static Object ResolveValueObject(CommandParameters p)
