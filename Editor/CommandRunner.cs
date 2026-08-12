@@ -2884,6 +2884,9 @@ namespace ProjectMQaMcp.Editor
         public string componentPath;
         public int componentIndex;
         public bool allowDuplicate;
+        // close_prefab_stage only: leave Prefab Mode even though it holds unsaved edits. Off by default
+        // because those edits belong to whoever made them, and closing is what throws them away.
+        public bool discardChanges;
         // What kind of value fieldValue carries: objectRef (default), null, arraySize, int, float,
         // bool, string or enum.
         public string fieldKind;

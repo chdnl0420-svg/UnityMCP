@@ -33,6 +33,8 @@ namespace ProjectMQaMcp.Editor
     /// </summary>
     internal static class ComponentWiringBridge
     {
+        // Every command the switch below answers. It had drifted - the prefab commands were all missing,
+        // so editor_status reported a bridge that could not touch prefabs while it happily executed them.
         internal static readonly string[] SupportedCommands =
         {
             "list_components",
@@ -41,6 +43,12 @@ namespace ProjectMQaMcp.Editor
             "get_component_field",
             "set_component_field",
             "drag_object_to_field",
+            "duplicate_object",
+            "wire_prefab_field",
+            "remove_prefab_component",
+            "duplicate_prefab_object",
+            "open_prefab_stage",
+            "close_prefab_stage",
         };
 
         internal static bool TryExecute(string command, CommandParameters p, CommandResponse response)
@@ -56,6 +64,9 @@ namespace ProjectMQaMcp.Editor
                 case "duplicate_object": DuplicateObject(p, response); return true;
                 case "wire_prefab_field": WirePrefabField(p, response); return true;
                 case "remove_prefab_component": RemovePrefabComponent(p, response); return true;
+                case "duplicate_prefab_object": DuplicatePrefabObject(p, response); return true;
+                case "open_prefab_stage": OpenPrefabStage(p, response); return true;
+                case "close_prefab_stage": ClosePrefabStage(p, response); return true;
             }
 
             return false;
@@ -603,6 +614,374 @@ namespace ProjectMQaMcp.Editor
             {
                 PrefabUtility.UnloadPrefabContents(root);
             }
+        }
+
+        /// <summary>
+        /// Copies a child inside a prefab asset the way a person does it: open Prefab Mode, select the
+        /// node, run the editor's own Duplicate. duplicate_object only reaches scene objects, so a node
+        /// that lives solely inside a prefab had no route at all.
+        ///
+        /// An earlier version cloned with Object.Instantiate on a LoadPrefabContents copy. That looked
+        /// right in the editor and destroyed the file: a fresh instance makes Unity hand out new fileIDs
+        /// for the whole asset, so a one-object copy came back as 616,210 changed lines with 95 UILabel
+        /// texts gone (39 MB prefab, measured 2026-08-12). Duplicate keeps every existing id, which is
+        /// exactly what the check after the save verifies.
+        /// </summary>
+        private static void DuplicatePrefabObject(CommandParameters p, CommandResponse response)
+        {
+            // Saving a prefab while the game runs bakes runtime state into the asset - refuse outright.
+            if (EditorApplication.isPlayingOrWillChangePlaymode)
+            {
+                throw new InvalidOperationException(
+                    "duplicate_prefab_object does not run in play mode - saving a prefab there writes runtime state into the asset.");
+            }
+
+            var prefabPath = Require(p.targetPath, "targetPath");
+            var sourcePath = Require(p.componentPath, "componentPath");
+
+            if (!File.Exists(prefabPath))
+            {
+                throw new ArgumentException($"Prefab not found: {prefabPath}");
+            }
+
+            // Measured before the edit so the save can be judged, and copied aside so a bad save can be undone.
+            var before = MeasurePrefab(prefabPath);
+            var backupPath = Path.Combine(Path.GetTempPath(), "mcp-prefab-" + Guid.NewGuid().ToString("N") + ".bak");
+            File.Copy(prefabPath, backupPath, true);
+
+            // Editing happens on a LoadPrefabContents copy, not in Prefab Mode. Prefab Mode builds a real
+            // scene and the prefab's components start living in it - saving that back wrote 201 disabled
+            // NGUI widgets into this file (2026-08-12). The same load-and-save path is what wire_prefab_field
+            // uses, and its diffs come out at a dozen lines.
+            var root = PrefabUtility.LoadPrefabContents(prefabPath);
+            string failure = null;
+
+            try
+            {
+                var source = root.transform.Find(sourcePath);
+
+                if (source == null)
+                {
+                    throw new ArgumentException(
+                        $"Object not found inside prefab '{prefabPath}': {sourcePath}");
+                }
+
+                var parent = source.parent;
+
+                if (parent == null)
+                {
+                    throw new ArgumentException(
+                        "The prefab root cannot be duplicated into itself - name a child in componentPath.");
+                }
+
+                var clone = Object.Instantiate(source.gameObject, parent).transform;
+
+                clone.name = string.IsNullOrEmpty(p.valueName)
+                    ? source.name + " (Clone)"
+                    : p.valueName;
+
+                // Sitting right after the original keeps sibling order readable for whoever opens the prefab.
+                clone.SetSiblingIndex(source.GetSiblingIndex() + 1);
+
+                // Read everything the response needs while the stage still exists. Closing it destroys
+                // these objects, and touching a destroyed Transform throws MissingReferenceException -
+                // which is what happened when the report was written after the close (2026-08-12).
+                var cloneName = clone.name;
+                var parentName = parent.name;
+                var cloneSiblingIndex = clone.GetSiblingIndex().ToString();
+                var cloneActiveSelf = clone.gameObject.activeSelf.ToString();
+
+                var usedCrLf = FileUsesCrLf(prefabPath);
+
+                PrefabUtility.SaveAsPrefabAsset(root, prefabPath);
+
+                if (usedCrLf)
+                {
+                    RestoreCrLf(prefabPath);
+                }
+
+                var after = MeasurePrefab(prefabPath);
+                failure = DescribeDamage(before, after);
+
+                if (failure != null)
+                {
+                    File.Copy(backupPath, prefabPath, true);
+                }
+                else
+                {
+                    response.AddOutput("prefab", prefabPath);
+                    response.AddOutput("source", sourcePath);
+                    response.AddOutput("created", cloneName);
+                    response.AddOutput("parent", parentName);
+                    response.AddOutput("siblingIndex", cloneSiblingIndex);
+                    response.AddOutput("activeSelf", cloneActiveSelf);
+                    response.AddOutput("linesBefore", before.Lines.ToString());
+                    response.AddOutput("linesAfter", after.Lines.ToString());
+                    response.AddOutput("bytesBefore", before.Bytes.ToString());
+                    response.AddOutput("bytesAfter", after.Bytes.ToString());
+                    response.AddOutput("fileIdsKept", before.Anchors.Count.ToString());
+                    response.AddOutput("fileIdsAdded", (after.Anchors.Count - before.Anchors.Count).ToString());
+                    response.AddOutput("enabledComponents", $"{before.EnabledComponents} -> {after.EnabledComponents}");
+                    response.AddOutput("labelTexts", $"{before.LabelTexts} -> {after.LabelTexts}");
+                }
+            }
+            finally
+            {
+                // The loaded copy lives in a hidden scene; leaving it behind leaks that scene and later
+                // loads of the same prefab trip over it.
+                PrefabUtility.UnloadPrefabContents(root);
+            }
+
+            if (failure != null)
+            {
+                AssetDatabase.ImportAsset(prefabPath, ImportAssetOptions.ForceUpdate);
+                File.Delete(backupPath);
+
+                throw new InvalidOperationException(failure);
+            }
+
+            File.Delete(backupPath);
+        }
+
+        /// <summary>
+        /// Opens a prefab in Prefab Mode - the editing context a double-click in the Project window
+        /// gives. Offered on its own so a caller can set the stage up, look at it, or clean up after a
+        /// command that had to leave it open.
+        /// </summary>
+        private static void OpenPrefabStage(CommandParameters p, CommandResponse response)
+        {
+            if (EditorApplication.isPlayingOrWillChangePlaymode)
+            {
+                throw new InvalidOperationException(
+                    "open_prefab_stage does not run in play mode - editing a prefab there writes runtime state into the asset.");
+            }
+
+            var prefabPath = Require(p.targetPath, "targetPath");
+
+            if (!File.Exists(prefabPath))
+            {
+                throw new ArgumentException($"Prefab not found: {prefabPath}");
+            }
+
+            var current = PrefabStageUtility.GetCurrentPrefabStage();
+
+            if (current != null && current.scene.isDirty)
+            {
+                throw new InvalidOperationException(
+                    $"Prefab Mode already holds unsaved changes for '{current.assetPath}'. Close it with close_prefab_stage first.");
+            }
+
+            var stage = PrefabStageUtility.OpenPrefab(prefabPath);
+
+            if (stage == null)
+            {
+                throw new InvalidOperationException($"Unity refused to open '{prefabPath}' in Prefab Mode.");
+            }
+
+            response.AddOutput("prefab", stage.assetPath);
+            response.AddOutput("root", stage.prefabContentsRoot.name);
+            response.AddOutput("children", stage.prefabContentsRoot.transform.childCount.ToString());
+            response.AddOutput("replaced", current == null ? "(none)" : current.assetPath);
+        }
+
+        /// <summary>
+        /// Leaves Prefab Mode and reports what was open. Closing is not a no-op when the stage holds
+        /// unsaved edits - it throws them away - so that case needs discardChanges rather than a guess.
+        /// </summary>
+        private static void ClosePrefabStage(CommandParameters p, CommandResponse response)
+        {
+            var stage = PrefabStageUtility.GetCurrentPrefabStage();
+
+            if (stage == null)
+            {
+                response.AddOutput("closed", "(none)");
+                response.AddOutput("note", "no prefab was open in Prefab Mode");
+                return;
+            }
+
+            var assetPath = stage.assetPath;
+            var wasDirty = stage.scene.isDirty;
+
+            if (wasDirty && !p.discardChanges)
+            {
+                throw new InvalidOperationException(
+                    $"Prefab Mode holds unsaved changes for '{assetPath}'. Closing would discard them - pass discardChanges=true to do that on purpose.");
+            }
+
+            CloseStage(stage, response);
+
+            response.AddOutput("closed", assetPath);
+            response.AddOutput("hadUnsavedChanges", wasDirty.ToString());
+            response.AddOutput("stillOpen", (PrefabStageUtility.GetCurrentPrefabStage() != null).ToString());
+        }
+
+        /// <summary>
+        /// Leaves Prefab Mode without raising the "save your changes?" modal - a modal there stops the
+        /// bridge dead until a human clicks it by hand.
+        /// </summary>
+        private static void CloseStage(PrefabStage stage, CommandResponse response)
+        {
+            if (stage == null)
+            {
+                return;
+            }
+
+            if (!TryClearStageDirtiness(stage))
+            {
+                // Leaving the stage open is the lesser evil; the next command reports it as already open.
+                response.AddOutput("stage", "left open - no way to clear the stage's unsaved-changes flag on this Unity version");
+                return;
+            }
+
+            StageUtility.GoToMainStage();
+        }
+
+        /// <summary>
+        /// Drops the stage's unsaved-changes flag. Both routes are internal API and the one that exists
+        /// moved between Unity versions, so both are tried: PrefabStage.ClearDirtiness on older editors,
+        /// EditorSceneManager.ClearSceneDirtiness on 2022.3. Without this, leaving the stage raises the
+        /// save-changes modal even though the asset on disk is already current.
+        /// </summary>
+        private static bool TryClearStageDirtiness(PrefabStage stage)
+        {
+            const System.Reflection.BindingFlags instanceMember =
+                System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic;
+
+            const System.Reflection.BindingFlags staticMember =
+                System.Reflection.BindingFlags.Static |
+                System.Reflection.BindingFlags.NonPublic |
+                System.Reflection.BindingFlags.Public;
+
+            var clearDirtiness = typeof(PrefabStage).GetMethod("ClearDirtiness", instanceMember);
+
+            if (clearDirtiness != null)
+            {
+                clearDirtiness.Invoke(stage, null);
+
+                if (!stage.scene.isDirty)
+                {
+                    return true;
+                }
+            }
+
+            var clearSceneDirtiness = typeof(EditorSceneManager).GetMethod(
+                "ClearSceneDirtiness",
+                staticMember,
+                null,
+                new[] { typeof(UnityEngine.SceneManagement.Scene) },
+                null);
+
+            if (clearSceneDirtiness == null)
+            {
+                return false;
+            }
+
+            clearSceneDirtiness.Invoke(null, new object[] { stage.scene });
+
+            return !stage.scene.isDirty;
+        }
+
+        /// <summary>
+        /// Says what the save broke, or null when it only added. A duplicate can only ever grow the file,
+        /// so each of the three measures is checked for a drop and the first drop found is reported -
+        /// the caller restores the backup on any non-null answer.
+        /// </summary>
+        private static string DescribeDamage(PrefabShape before, PrefabShape after)
+        {
+            var scale =
+                $"(lines {before.Lines} -> {after.Lines}, bytes {before.Bytes} -> {after.Bytes})";
+
+            var lost = before.Anchors.Except(after.Anchors).ToList();
+
+            if (lost.Count > 0)
+            {
+                return
+                    $"Save rewrote the asset instead of extending it: {lost.Count} of {before.Anchors.Count} existing " +
+                    $"fileIDs disappeared {scale}. First lost fileID: {lost[0]}. " +
+                    "The prefab was restored from a backup, so nothing changed.";
+            }
+
+            if (after.EnabledComponents < before.EnabledComponents)
+            {
+                return
+                    $"Save disabled components that were enabled: {before.EnabledComponents} -> " +
+                    $"{after.EnabledComponents} enabled {scale}. " +
+                    "The prefab was restored from a backup, so nothing changed.";
+            }
+
+            if (after.LabelTexts < before.LabelTexts)
+            {
+                return
+                    $"Save dropped label text: {before.LabelTexts} -> {after.LabelTexts} mText entries {scale}. " +
+                    "The prefab was restored from a backup, so nothing changed.";
+            }
+
+            return null;
+        }
+
+        /// <summary>What a prefab file holds, in the terms a duplicate is allowed to change.</summary>
+        private struct PrefabShape
+        {
+            public long Bytes;
+            public int Lines;
+            public HashSet<string> Anchors;
+            public int EnabledComponents;
+            public int LabelTexts;
+        }
+
+        /// <summary>
+        /// Measures a prefab along the three axes a duplicate must never shrink.
+        ///
+        /// Anchors ("--- !u!114 &4088066525642517092") are fileIDs. Unity keeps an object's fileID stable
+        /// across saves, so an anchor that vanished means the file was re-serialized with fresh ids and
+        /// every reference held elsewhere now points at nothing.
+        ///
+        /// The other two exist because measuring fileIDs alone let real damage through. Opening this
+        /// prefab in Prefab Mode brings its NGUI widgets to life, and saving wrote that live state back:
+        /// 201 UISprite/UILabel/UIWidget/UITexture components came back with m_Enabled flipped to 0 while
+        /// every fileID stayed put (measured 2026-08-12). Label text has failed the same way before -
+        /// an earlier clone lost 95 mText values. A duplicate only ever adds, so any drop is damage.
+        /// </summary>
+        private static PrefabShape MeasurePrefab(string path)
+        {
+            var shape = new PrefabShape
+            {
+                Bytes = new FileInfo(path).Length,
+                Lines = 0,
+                Anchors = new HashSet<string>(),
+                EnabledComponents = 0,
+                LabelTexts = 0,
+            };
+
+            foreach (var line in File.ReadLines(path))
+            {
+                shape.Lines++;
+
+                if (line.StartsWith("--- !u!", StringComparison.Ordinal))
+                {
+                    var ampersand = line.IndexOf('&');
+
+                    if (ampersand >= 0)
+                    {
+                        shape.Anchors.Add(line.Substring(ampersand + 1).Trim());
+                    }
+
+                    continue;
+                }
+
+                var trimmed = line.TrimStart();
+
+                if (trimmed.StartsWith("m_Enabled: 1", StringComparison.Ordinal))
+                {
+                    shape.EnabledComponents++;
+                }
+                else if (trimmed.StartsWith("mText:", StringComparison.Ordinal))
+                {
+                    shape.LabelTexts++;
+                }
+            }
+
+            return shape;
         }
 
         // Raw byte values, not char literals - keeping the escapes out of this file is what stops
