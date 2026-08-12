@@ -46,6 +46,15 @@ namespace ProjectMQaMcp.Editor
         [InitializeOnLoadMethod]
         private static void Start()
         {
+            // Asset import workers run these scripts too and watch the same project folder, so without
+            // this they race the editor for requests and win some of them. A worker has no dialogs and
+            // no windows, so the ones it wins come back as "nothing found" - see
+            // CommandRunner.IsAssetImportWorker for what that looked like when it happened.
+            if (CommandRunner.IsAssetImportWorker())
+            {
+                return;
+            }
+
             // Resolved here rather than on the thread: GetCommandRoot falls back to Application.dataPath,
             // which is a Unity API.
             commandRoot = CommandRunner.GetCommandRoot();

@@ -49,11 +49,44 @@ namespace ProjectMQaMcp.Editor
 
         static CommandRunner()
         {
+            if (IsAssetImportWorker())
+            {
+                return;
+            }
+
             EditorApplication.update += Poll;
             // Buffer compile errors to a file so they survive the domain reload that a
             // recompile triggers (static fields reset on reload, a file does not).
             CompilationPipeline.compilationStarted += OnCompilationStarted;
             CompilationPipeline.assemblyCompilationFinished += OnAssemblyCompilationFinished;
+        }
+
+        /// <summary>
+        /// True in the helper processes Unity spawns to import assets ("AssetImportWorker0", ...).
+        ///
+        /// They run the same scripts, so [InitializeOnLoad] fires in them too, and they see the same
+        /// project folder - which means they will happily claim requests out of it. That is not a
+        /// harmless duplicate: a worker has no editor windows and no dialogs, so whatever it picks up
+        /// gets answered from a process where the thing being asked about does not exist. Measured
+        /// 2026-08-13: editor_dialog_list returned zero while a "#32770" box was plainly up in the
+        /// main editor, and an earlier editor_dialog_click that reported armed=true was followed by a
+        /// status saying nothing had ever been armed - two processes, two sets of statics.
+        ///
+        /// Batch mode alone is not the test. A real headless run is also batch mode and should still
+        /// get a bridge, so the worker is identified by the name Unity gives it on the command line.
+        /// </summary>
+        internal static bool IsAssetImportWorker()
+        {
+            foreach (var arg in Environment.GetCommandLineArgs())
+            {
+                if (!string.IsNullOrEmpty(arg) &&
+                    arg.IndexOf("AssetImportWorker", StringComparison.OrdinalIgnoreCase) >= 0)
+                {
+                    return true;
+                }
+            }
+
+            return false;
         }
 
         public static void RunOnce()
