@@ -2879,6 +2879,9 @@ namespace ProjectMQaMcp.Editor
         // --- per-window pixel capture (editor_window_capture / editor_drag_capture) ---
         // --- component wiring (add_component / set_component_field / drag_object_to_field) ---
         // The component that owns the field. componentName/fieldPath/fieldValue above are reused.
+        // componentPath points at the child that carries the component - wire_prefab_field needs it
+        // because a prefab's scripts usually hang off children, not the root.
+        public string componentPath;
         public int componentIndex;
         public bool allowDuplicate;
         // What kind of value fieldValue carries: objectRef (default), null, arraySize, int, float,

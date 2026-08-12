@@ -7,6 +7,7 @@ using UnityEditor;
 using UnityEditor.SceneManagement;
 using UnityEngine;
 using Object = UnityEngine.Object;
+using System.IO;
 
 namespace ProjectMQaMcp.Editor
 {
@@ -53,6 +54,8 @@ namespace ProjectMQaMcp.Editor
                 case "set_component_field": SetComponentField(p, response); return true;
                 case "drag_object_to_field": DragObjectToField(p, response); return true;
                 case "duplicate_object": DuplicateObject(p, response); return true;
+                case "wire_prefab_field": WirePrefabField(p, response); return true;
+                case "remove_prefab_component": RemovePrefabComponent(p, response); return true;
             }
 
             return false;
@@ -426,6 +429,234 @@ namespace ProjectMQaMcp.Editor
             response.AddOutput("clone", HierarchyPath(clone));
             response.AddOutput("cloneName", clone.name);
             response.AddOutput("activeSelf", clone.activeSelf.ToString());
+        }
+
+        /// <summary>
+        /// Wires a serialized field on a prefab asset without opening Prefab Mode.
+        /// Scene wiring cannot reach an asset, and a prefab that is only spawned at runtime
+        /// never sits in a scene to be wired there — so neither existing path covers it.
+        ///
+        /// targetPath = prefab asset path, componentName/fieldPath = what to write,
+        /// valuePath = child path inside the prefab that the field should point at
+        /// (empty means the prefab root itself).
+        /// </summary>
+        private static void WirePrefabField(CommandParameters p, CommandResponse response)
+        {
+            var prefabPath = Require(p.targetPath, "targetPath");
+            var root = PrefabUtility.LoadPrefabContents(prefabPath);
+
+            try
+            {
+                // A prefab's scripts usually hang off children, not the root, so the owner is
+                // addressed by path. Without this the command could only reach root components.
+                var owner = root;
+
+                if (!string.IsNullOrEmpty(p.componentPath))
+                {
+                    var ownerTransform = root.transform.Find(p.componentPath);
+
+                    if (ownerTransform == null)
+                    {
+                        throw new ArgumentException(
+                            $"Component owner not found inside prefab '{prefabPath}': {p.componentPath}");
+                    }
+
+                    owner = ownerTransform.gameObject;
+                }
+
+                var component = FindComponent(owner, Require(p.componentName, "componentName"), p.componentIndex);
+                var path = NormalizePropertyPath(p.fieldPath);
+                var serialized = new SerializedObject(component);
+                var property = FindPropertyOrThrow(serialized, path, component);
+
+                var before = DescribeProperty(property);
+
+                // An array has to be grown before anything can be written into an index, so the
+                // caller says which kind of write this is. Defaulting to objectRef keeps older calls working.
+                var kind = string.IsNullOrEmpty(p.fieldKind) ? "objectRef" : p.fieldKind;
+                string after;
+
+                switch (kind)
+                {
+                    case "objectRef":
+                        var child = string.IsNullOrEmpty(p.valuePath)
+                            ? root.transform
+                            : root.transform.Find(p.valuePath);
+
+                        if (child == null)
+                        {
+                            throw new ArgumentException(
+                                $"Child not found inside prefab '{prefabPath}': {p.valuePath}");
+                        }
+
+                        // A field typed as a component needs the component itself, not the GameObject -
+                        // valueComponentName says which one to pull off that child.
+                        if (string.IsNullOrEmpty(p.valueComponentName))
+                        {
+                            property.objectReferenceValue = child.gameObject;
+                            after = child.name;
+                        }
+                        else
+                        {
+                            var valueComponent = FindComponent(
+                                child.gameObject, p.valueComponentName, p.valueComponentIndex);
+
+                            property.objectReferenceValue = valueComponent;
+                            after = $"{child.name} ({valueComponent.GetType().Name})";
+                        }
+
+                        break;
+
+                    case "null":
+                        property.objectReferenceValue = null;
+                        after = "null";
+                        break;
+
+                    case "arraySize":
+                        after = Require(p.fieldValue, "fieldValue");
+                        property.arraySize = int.Parse(after, CultureInfo.InvariantCulture);
+                        break;
+
+                    default:
+                        throw new ArgumentException(
+                            $"Unknown fieldKind '{kind}' for wire_prefab_field. Use objectRef, null or arraySize.");
+                }
+
+                serialized.ApplyModifiedPropertiesWithoutUndo();
+
+                // Unity always writes prefabs with bare LF. A project whose prefabs are stored with
+                // CRLF would otherwise show every single line as changed in the diff, so remember
+                // what the file used before saving and put it back afterwards.
+                var usedCrLf = FileUsesCrLf(prefabPath);
+
+                PrefabUtility.SaveAsPrefabAsset(root, prefabPath);
+
+                if (usedCrLf)
+                {
+                    RestoreCrLf(prefabPath);
+                }
+
+                response.AddOutput("prefab", prefabPath);
+                response.AddOutput("owner", string.IsNullOrEmpty(p.componentPath) ? "(root)" : p.componentPath);
+                response.AddOutput("component", component.GetType().Name);
+                response.AddOutput("field", path);
+                response.AddOutput("kind", kind);
+                response.AddOutput("before", before);
+                response.AddOutput("after", after);
+            }
+            finally
+            {
+                // The loaded copy lives in a hidden scene; leaving it behind leaks that scene
+                // and later loads of the same prefab trip over it.
+                PrefabUtility.UnloadPrefabContents(root);
+            }
+        }
+
+        /// <summary>
+        /// Deletes a component from a prefab asset. remove_component only reaches scene objects, so a
+        /// component that exists solely inside a prefab could not be removed through MCP at all.
+        /// </summary>
+        private static void RemovePrefabComponent(CommandParameters p, CommandResponse response)
+        {
+            var prefabPath = Require(p.targetPath, "targetPath");
+            var root = PrefabUtility.LoadPrefabContents(prefabPath);
+
+            try
+            {
+                var owner = root;
+
+                if (!string.IsNullOrEmpty(p.componentPath))
+                {
+                    var ownerTransform = root.transform.Find(p.componentPath);
+
+                    if (ownerTransform == null)
+                    {
+                        throw new ArgumentException(
+                            $"Component owner not found inside prefab '{prefabPath}': {p.componentPath}");
+                    }
+
+                    owner = ownerTransform.gameObject;
+                }
+
+                var component = FindComponent(owner, Require(p.componentName, "componentName"), p.componentIndex);
+                var removed = component.GetType().Name;
+
+                Object.DestroyImmediate(component, true);
+
+                var usedCrLf = FileUsesCrLf(prefabPath);
+
+                PrefabUtility.SaveAsPrefabAsset(root, prefabPath);
+
+                if (usedCrLf)
+                {
+                    RestoreCrLf(prefabPath);
+                }
+
+                response.AddOutput("prefab", prefabPath);
+                response.AddOutput("owner", string.IsNullOrEmpty(p.componentPath) ? "(root)" : p.componentPath);
+                response.AddOutput("removed", removed);
+                response.AddOutput("remaining", string.Join(", ", owner.GetComponents<Component>()
+                    .Where(x => x != null)
+                    .Select(x => x.GetType().Name)));
+            }
+            finally
+            {
+                PrefabUtility.UnloadPrefabContents(root);
+            }
+        }
+
+        // Raw byte values, not char literals - keeping the escapes out of this file is what stops
+        // a rewrite from turning them into real newlines.
+        private const byte LineFeed = 10;
+        private const byte CarriageReturn = 13;
+
+        /// <summary>Does this file use CRLF line endings? The first break in the file decides.</summary>
+        private static bool FileUsesCrLf(string path)
+        {
+            if (!File.Exists(path))
+            {
+                return false;
+            }
+
+            using (var stream = File.OpenRead(path))
+            {
+                var buffer = new byte[8192];
+                var read = stream.Read(buffer, 0, buffer.Length);
+
+                for (var i = 0; i < read; i++)
+                {
+                    if (buffer[i] != LineFeed)
+                    {
+                        continue;
+                    }
+
+                    return i > 0 && buffer[i - 1] == CarriageReturn;
+                }
+            }
+
+            return false;
+        }
+
+        /// <summary>
+        /// Rewrites lone LF bytes as CRLF, leaving existing CRLF pairs alone. Works on raw bytes so
+        /// the file's encoding and byte-order mark survive untouched.
+        /// </summary>
+        private static void RestoreCrLf(string path)
+        {
+            var bytes = File.ReadAllBytes(path);
+            var result = new List<byte>(bytes.Length + (bytes.Length / 40));
+
+            for (var i = 0; i < bytes.Length; i++)
+            {
+                if (bytes[i] == LineFeed && (i == 0 || bytes[i - 1] != CarriageReturn))
+                {
+                    result.Add(CarriageReturn);
+                }
+
+                result.Add(bytes[i]);
+            }
+
+            File.WriteAllBytes(path, result.ToArray());
         }
 
         private static Object ResolveValueObject(CommandParameters p)
