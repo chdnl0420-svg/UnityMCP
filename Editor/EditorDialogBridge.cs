@@ -16,9 +16,18 @@ namespace ProjectMQaMcp.Editor
     /// something else dismisses the box. Measured the hard way in this repo: a synthesized drag that
     /// entered a native drag loop left twelve requests queued and unprocessed until Unity was killed.
     ///
-    /// So the useful shape is not "click the dialog that is up", it is "arm now, click when it appears".
-    /// The watcher runs on a plain background thread, which keeps running while the main thread is
-    /// blocked, and touches nothing but Win32 - no Unity API is thread-safe to call from there.
+    /// So the useful shape is "arm now, click when it appears". The watcher runs on a plain background
+    /// thread, which keeps running while the main thread is blocked, and touches nothing but Win32 - no
+    /// Unity API is thread-safe to call from there.
+    ///
+    /// Since <see cref="OffThreadBridge"/> started reading requests from a background thread too, a
+    /// command sent *after* the dialog is up does get read, so editor_dialog_click also handles the
+    /// dialog that is already on screen: it presses it on the spot and puts the outcome in that one
+    /// response. That matters more than saving a round trip. Arming and then asking separately means
+    /// the answer lives in a static field, and a domain reload between the two commands wipes it - the
+    /// status call then cannot tell "pressed and finished" from "never armed", while the box may still
+    /// be sitting there blocking everything. Measured 2026-08-13, and it cost four minutes and a
+    /// Win32 rescue from outside the editor.
     ///
     /// On the buttons themselves: EditorUtility.DisplayDialog was expected to draw them with IMGUI,
     /// leaving nothing to enumerate and only the keyboard to drive them with. Measured on 2022.3.62f1
@@ -89,6 +98,37 @@ namespace ProjectMQaMcp.Editor
                 throw new ArgumentException("Provide buttonLabel or buttonIndex for editor_dialog_click.");
             }
 
+            // A dialog that is already up is pressed here and now, and the outcome goes back in this
+            // same response. Arming a watcher for it would work too, but the caller would then have to
+            // send editor_dialog_status to learn whether anything was pressed - and if that second
+            // command finds no watcher, it cannot tell "pressed and finished" from "never ran".
+            // Measured 2026-08-13: a click armed against a live "Warning" box answered armed=true, the
+            // very next status said no watcher had ever been armed, and the modal was still on screen.
+            // Recovering meant driving Win32 from outside the editor and cost about four minutes.
+            var alreadyUp = FindDialogs(watch.titleFilter);
+            if (alreadyUp.Count > 0)
+            {
+                try
+                {
+                    Press(watch, alreadyUp[0]);
+                }
+                catch (Exception e)
+                {
+                    watch.failure = e.GetType().Name + ": " + e.Message;
+                }
+
+                watch.finished = true;
+
+                // Kept so editor_dialog_status still describes this press if the caller asks anyway.
+                lock (Gate)
+                {
+                    _current = watch;
+                }
+
+                ReportPress(watch, response);
+                return;
+            }
+
             lock (Gate)
             {
                 if (_watcher != null && _watcher.IsAlive)
@@ -104,6 +144,7 @@ namespace ProjectMQaMcp.Editor
             }
 
             response.AddOutput("armed", "true");
+            response.AddOutput("mode", "armed");
             response.AddOutput("armMs", watch.armMs.ToString(CultureInfo.InvariantCulture));
             response.AddOutput("dialogTitleFilter", watch.titleFilter);
             response.AddOutput("wantButtonLabel", watch.buttonLabel);
@@ -112,6 +153,34 @@ namespace ProjectMQaMcp.Editor
                 "Armed. Now send the command that raises the dialog - it will block the editor, and this " +
                 "watcher will press the button from a background thread and let it go again. Read the " +
                 "outcome with editor_dialog_status afterwards.");
+        }
+
+        /// <summary>
+        /// Reports a press that already happened, in the same shape editor_dialog_status uses, so a
+        /// caller can read either one without knowing which route ran. 'mode' is what tells them apart.
+        /// </summary>
+        private static void ReportPress(Watch watch, CommandResponse response)
+        {
+            response.AddOutput("armed", "false");
+            response.AddOutput("mode", "pressed-immediately");
+            response.AddOutput("finished", "true");
+            response.AddOutput("timedOut", "false");
+            response.AddOutput("missed", watch.missed ? "true" : "false");
+            response.AddOutput("dialogTitle", watch.seenTitle ?? string.Empty);
+            response.AddOutput("dialogButtons", watch.seenButtons ?? string.Empty);
+            response.AddOutput("pressedLabel", watch.pressedLabel ?? string.Empty);
+            response.AddOutput("method", watch.method ?? string.Empty);
+            response.AddOutput("dialogClosed", watch.dialogClosed ? "true" : "false");
+
+            if (!string.IsNullOrEmpty(watch.failure))
+            {
+                response.AddOutput("failure", watch.failure);
+            }
+
+            response.AddOutput("note",
+                "The dialog was already open, so it was pressed straight away and the result is above - " +
+                "there is no need to send editor_dialog_status for this one. Check dialogClosed: false " +
+                "means the press was delivered but the box is still up.");
         }
 
         private static void DialogStatus(CommandResponse response)
@@ -127,7 +196,17 @@ namespace ProjectMQaMcp.Editor
             if (watch == null)
             {
                 response.AddOutput("armed", "false");
-                response.AddOutput("note", "No dialog watcher has been armed in this editor session.");
+                // Two very different things land here and the caller has to be able to tell them apart:
+                // nothing was ever armed, or something was armed and the state behind it was lost -
+                // which is what an assembly reload between the two commands does to these statics.
+                // Either way the useful next step is the same, so it is spelled out rather than implied.
+                response.AddOutput("note",
+                    "No dialog watcher is on record. Either none was armed, or one was armed and its " +
+                    "state was lost - a domain reload between the two commands wipes it. This says " +
+                    "nothing about whether a dialog was pressed. To find out: editor_dialog_list " +
+                    "answers even while the editor is blocked, so if it still lists the box, nothing " +
+                    "dismissed it - send editor_dialog_click again and it will press the open dialog " +
+                    "on the spot and report the outcome in that one response.");
                 return;
             }
 
