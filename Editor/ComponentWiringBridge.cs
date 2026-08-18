@@ -44,6 +44,7 @@ namespace ProjectMQaMcp.Editor
             "set_component_field",
             "drag_object_to_field",
             "duplicate_object",
+            "rename_object",
             "wire_prefab_field",
             "remove_prefab_component",
             "duplicate_prefab_object",
@@ -62,6 +63,7 @@ namespace ProjectMQaMcp.Editor
                 case "set_component_field": SetComponentField(p, response); return true;
                 case "drag_object_to_field": DragObjectToField(p, response); return true;
                 case "duplicate_object": DuplicateObject(p, response); return true;
+                case "rename_object": RenameObject(p, response); return true;
                 case "wire_prefab_field": WirePrefabField(p, response); return true;
                 case "remove_prefab_component": RemovePrefabComponent(p, response); return true;
                 case "duplicate_prefab_object": DuplicatePrefabObject(p, response); return true;
@@ -440,6 +442,34 @@ namespace ProjectMQaMcp.Editor
             response.AddOutput("clone", HierarchyPath(clone));
             response.AddOutput("cloneName", clone.name);
             response.AddOutput("activeSelf", clone.activeSelf.ToString());
+        }
+
+        /// <summary>
+        /// Renames a scene GameObject.
+        ///
+        /// Authoring a prefab often needs a new child with a specific name, but the only ways to make one
+        /// were the editor's own "Create Empty Child" menu item, which always names it "GameObject", and
+        /// duplicate_object, which needs an existing object to copy. Neither could rename what it produced:
+        /// set_component_field writes through SerializedObject(Component), and a Component's serialized
+        /// properties do not include the GameObject's m_Name. So a freshly created child was stuck with
+        /// the default name and the whole path had to be worked around.
+        ///
+        /// targetPath/targetName = what to rename, fieldValue = the new name.
+        /// </summary>
+        private static void RenameObject(CommandParameters p, CommandResponse response)
+        {
+            var target = FindSceneObject(p.targetPath, p.targetName);
+            var newName = Require(p.fieldValue, "fieldValue");
+            var before = target.name;
+
+            Undo.RecordObject(target, "rename_object");
+            target.name = newName;
+            EditorUtility.SetDirty(target);
+
+            response.AddOutput("target", HierarchyPath(target));
+            response.AddOutput("before", before);
+            response.AddOutput("after", target.name);
+            response.AddOutput("changed", (before != target.name).ToString());
         }
 
         /// <summary>
