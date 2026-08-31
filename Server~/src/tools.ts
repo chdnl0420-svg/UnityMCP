@@ -388,7 +388,7 @@ async function unityRunTests(params: any): Promise<unknown> {
     commandRoot: config.commandRoot,
     mode: params.mode,
     testFilter: params.testFilter,
-    timeoutMs: params.timeoutMs ?? 30 * 60 * 1000,
+    timeoutMs: params.timeoutMs ?? 3 * 60 * 1000,
   });
 }
 
@@ -418,7 +418,7 @@ async function unityExecuteEditorCommand(params: any): Promise<unknown> {
     commandRoot: config.commandRoot,
     command: params.command,
     parameters: params.parameters,
-    timeoutMs: params.timeoutMs ?? 15000,
+    timeoutMs: params.timeoutMs ?? 1500,
     runOnce: params.runOnce ?? false,
   });
 }
@@ -437,7 +437,7 @@ async function unityCaptureScreenshot(params: any): Promise<unknown> {
       width: params.width ?? 1280,
       height: params.height ?? 720,
     },
-    timeoutMs: params.timeoutMs ?? 15000,
+    timeoutMs: params.timeoutMs ?? 1500,
     runOnce: params.runOnce ?? false,
   });
   const bytes = await fileSize(outputPath);
@@ -463,7 +463,7 @@ async function unityClickUiText(params: any): Promise<unknown> {
       text: params.text,
       includeInactive: params.includeInactive ?? false,
     },
-    timeoutMs: params.timeoutMs ?? 15000,
+    timeoutMs: params.timeoutMs ?? 1500,
     runOnce: params.runOnce ?? false,
   });
 }
@@ -475,9 +475,9 @@ async function unityClickUiTextAndWait(params: any): Promise<unknown> {
     waitText: params.waitText,
     exact: params.exact ?? false,
     includeInactive: params.includeInactive ?? false,
-    timeoutMs: params.timeoutMs ?? 30000,
+    timeoutMs: params.timeoutMs ?? 3000,
     pollIntervalMs: params.pollIntervalMs ?? 500,
-    commandTimeoutMs: Math.min(params.timeoutMs ?? 15000, 15000),
+    commandTimeoutMs: Math.min(params.timeoutMs ?? 1500, 1500),
     execute: (command, parameters, timeoutMs) => executeEditorCommand({
       unityPath: config.unityPath,
       projectPath: config.projectPath,
@@ -500,9 +500,9 @@ async function unityRunUiTextQaFlow(params: any): Promise<unknown> {
     outputRoot,
     exact: params.exact ?? true,
     includeInactive: params.includeInactive ?? false,
-    timeoutMs: params.timeoutMs ?? 90000,
+    timeoutMs: params.timeoutMs ?? 9000,
     pollIntervalMs: params.pollIntervalMs ?? 500,
-    commandTimeoutMs: Math.min(params.timeoutMs ?? 15000, 15000),
+    commandTimeoutMs: Math.min(params.timeoutMs ?? 1500, 1500),
     width: params.width ?? 1280,
     height: params.height ?? 720,
     requireRequestedSize: params.requireRequestedSize ?? false,
@@ -525,9 +525,9 @@ async function unityWaitUiText(params: any): Promise<unknown> {
     text: params.text,
     exact: params.exact ?? false,
     includeInactive: params.includeInactive ?? false,
-    timeoutMs: params.timeoutMs ?? 30000,
+    timeoutMs: params.timeoutMs ?? 3000,
     pollIntervalMs: params.pollIntervalMs ?? 500,
-    commandTimeoutMs: Math.min(params.timeoutMs ?? 15000, 15000),
+    commandTimeoutMs: Math.min(params.timeoutMs ?? 1500, 1500),
     execute: (command, parameters, timeoutMs) => executeEditorCommand({
       unityPath: config.unityPath,
       projectPath: config.projectPath,
@@ -546,9 +546,9 @@ async function unityWaitThenClick(params: any): Promise<unknown> {
     text: params.text,
     exact: params.exact ?? false,
     includeInactive: params.includeInactive ?? false,
-    timeoutMs: params.timeoutMs ?? 30000,
+    timeoutMs: params.timeoutMs ?? 3000,
     pollIntervalMs: params.pollIntervalMs ?? 500,
-    commandTimeoutMs: Math.min(params.timeoutMs ?? 15000, 15000),
+    commandTimeoutMs: Math.min(params.timeoutMs ?? 1500, 1500),
     execute: (command, parameters, timeoutMs) => executeEditorCommand({
       unityPath: config.unityPath,
       projectPath: config.projectPath,
@@ -565,9 +565,9 @@ async function unitySetPlayMode(params: any, targetPlaying: boolean): Promise<un
   const config = resolveProjectConfig(params);
   return setPlayModeAndWait({
     targetPlaying,
-    timeoutMs: params.timeoutMs ?? 60000,
+    timeoutMs: params.timeoutMs ?? 6000,
     pollIntervalMs: params.pollIntervalMs ?? 500,
-    commandTimeoutMs: Math.min(params.timeoutMs ?? 15000, 15000),
+    commandTimeoutMs: Math.min(params.timeoutMs ?? 1500, 1500),
     execute: (command, parameters, timeoutMs) => executeEditorCommand({
       unityPath: config.unityPath,
       projectPath: config.projectPath,
@@ -597,7 +597,7 @@ async function unityStartFrameCapture(params: any): Promise<unknown> {
       maxFrames: params.maxFrames ?? 600,
       maxDurationSeconds: params.maxDurationSeconds ?? 30,
     },
-    timeoutMs: params.timeoutMs ?? 15000,
+    timeoutMs: params.timeoutMs ?? 1500,
     runOnce: params.runOnce ?? false,
   });
 
@@ -620,7 +620,7 @@ async function unityStopFrameCapture(params: any): Promise<unknown> {
     parameters: {
       framesDir: params.framesDir,
     },
-    timeoutMs: params.timeoutMs ?? 15000,
+    timeoutMs: params.timeoutMs ?? 1500,
     runOnce: params.runOnce ?? false,
   });
 
@@ -715,7 +715,7 @@ async function unitySimpleCommand(params: any, command: string, parameters: Reco
     commandRoot: config.commandRoot,
     command,
     parameters: cleaned,
-    timeoutMs: params.timeoutMs ?? 15000,
+    timeoutMs: params.timeoutMs ?? 1500,
     runOnce: false,
   });
 }

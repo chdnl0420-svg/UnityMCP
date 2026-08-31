@@ -85,7 +85,7 @@ export interface WaitThenClickResult {
 export async function waitThenClick(options: WaitThenClickOptions): Promise<WaitThenClickResult> {
   const now = options.now ?? (() => Date.now());
   const exact = options.exact ?? false;
-  const commandTimeoutMs = options.commandTimeoutMs ?? 15000;
+  const commandTimeoutMs = options.commandTimeoutMs ?? 1500;
   const startedAt = now();
 
   const waitResult = await waitForUiText({
@@ -135,7 +135,7 @@ export async function waitThenClick(options: WaitThenClickOptions): Promise<Wait
 export async function clickUiTextAndWait(options: ClickUiTextAndWaitOptions): Promise<ClickUiTextAndWaitResult> {
   const now = options.now ?? (() => Date.now());
   const exact = options.exact ?? false;
-  const commandTimeoutMs = options.commandTimeoutMs ?? 15000;
+  const commandTimeoutMs = options.commandTimeoutMs ?? 1500;
   const startedAt = now();
   const clickResponse = await options.execute('click_ui_text', {
     text: options.clickText,
@@ -190,7 +190,7 @@ export async function waitForUiText(options: WaitUiTextOptions): Promise<WaitUiT
   const delay = options.delay ?? defaultDelay;
   const exact = options.exact ?? false;
   const pollIntervalMs = options.pollIntervalMs ?? 500;
-  const commandTimeoutMs = options.commandTimeoutMs ?? 15000;
+  const commandTimeoutMs = options.commandTimeoutMs ?? 1500;
   const startedAt = now();
   let polls = 0;
   let lastUi = '';

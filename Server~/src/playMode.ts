@@ -28,7 +28,7 @@ export async function setPlayModeAndWait(options: PlayModeWaitOptions): Promise<
   const now = options.now ?? (() => Date.now());
   const delay = options.delay ?? defaultDelay;
   const pollIntervalMs = options.pollIntervalMs ?? 500;
-  const commandTimeoutMs = options.commandTimeoutMs ?? 15000;
+  const commandTimeoutMs = options.commandTimeoutMs ?? 1500;
   const transitionCommand = options.targetPlaying ? 'enter_play_mode' : 'exit_play_mode';
   const startedAt = now();
 

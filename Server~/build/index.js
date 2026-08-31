@@ -21469,7 +21469,7 @@ async function setPlayModeAndWait(options) {
   const now = options.now ?? (() => Date.now());
   const delay2 = options.delay ?? defaultDelay;
   const pollIntervalMs = options.pollIntervalMs ?? 500;
-  const commandTimeoutMs = options.commandTimeoutMs ?? 15e3;
+  const commandTimeoutMs = options.commandTimeoutMs ?? 1500;
   const transitionCommand = options.targetPlaying ? "enter_play_mode" : "exit_play_mode";
   const startedAt = now();
   const transitionResponse = await options.execute(transitionCommand, {}, commandTimeoutMs);
@@ -21561,7 +21561,7 @@ function defaultDelay(ms) {
 async function waitThenClick(options) {
   const now = options.now ?? (() => Date.now());
   const exact = options.exact ?? false;
-  const commandTimeoutMs = options.commandTimeoutMs ?? 15e3;
+  const commandTimeoutMs = options.commandTimeoutMs ?? 1500;
   const startedAt = now();
   const waitResult = await waitForUiText({
     text: options.text,
@@ -21606,7 +21606,7 @@ async function waitThenClick(options) {
 async function clickUiTextAndWait(options) {
   const now = options.now ?? (() => Date.now());
   const exact = options.exact ?? false;
-  const commandTimeoutMs = options.commandTimeoutMs ?? 15e3;
+  const commandTimeoutMs = options.commandTimeoutMs ?? 1500;
   const startedAt = now();
   const clickResponse = await options.execute("click_ui_text", {
     text: options.clickText,
@@ -21657,7 +21657,7 @@ async function waitForUiText(options) {
   const delay2 = options.delay ?? defaultDelay2;
   const exact = options.exact ?? false;
   const pollIntervalMs = options.pollIntervalMs ?? 500;
-  const commandTimeoutMs = options.commandTimeoutMs ?? 15e3;
+  const commandTimeoutMs = options.commandTimeoutMs ?? 1500;
   const startedAt = now();
   let polls = 0;
   let lastUi = "";
@@ -21791,7 +21791,7 @@ function readNumberOutput(value) {
 async function runUiTextQaFlow(options) {
   const now = options.now ?? (() => Date.now());
   const pollIntervalMs = options.pollIntervalMs ?? 500;
-  const commandTimeoutMs = options.commandTimeoutMs ?? 15e3;
+  const commandTimeoutMs = options.commandTimeoutMs ?? 1500;
   const exact = options.exact ?? true;
   const getFileSize = options.getFileSize ?? fileSize;
   const startedAt = now();
@@ -22306,7 +22306,7 @@ function registerEditorTools(server2) {
       ...commonShape,
       forceRecompile: external_exports.boolean().optional().describe("Also request a script recompilation even when no asset changed. Off by default."),
       waitForCompile: external_exports.boolean().optional().describe("Wait until compilation finishes (default true)."),
-      waitTimeoutMs: external_exports.number().int().min(1e3).max(30 * 60 * 1e3).optional().describe("How long to wait for compilation (default 300000).")
+      waitTimeoutMs: external_exports.number().int().min(1e3).max(30 * 60 * 1e3).optional().describe("How long to wait for compilation (default 30000).")
     },
     async (params) => {
       const requested = await runBridge(params, "editor_refresh", {
@@ -22315,7 +22315,7 @@ function registerEditorTools(server2) {
       if (!requested.success || (params.waitForCompile ?? true) === false) {
         return toToolResult(requested);
       }
-      const status = await waitForCompile(params, params.waitTimeoutMs ?? 3e5);
+      const status = await waitForCompile(params, params.waitTimeoutMs ?? 3e4);
       return toToolResult({
         ...requested,
         outputs: { ...requested.outputs, compile: status.outputs, compileWaitTimedOut: status.timedOut },
@@ -22340,11 +22340,11 @@ function registerEditorTools(server2) {
       expected: external_exports.string().describe("Value to wait for, compared as text."),
       comparison: external_exports.enum(["equals", "contains", "notEquals"]).optional().describe("How to compare (default equals)."),
       pollIntervalMs: external_exports.number().int().min(100).max(1e4).optional().describe("Gap between reads (default 500)."),
-      waitTimeoutMs: external_exports.number().int().min(1e3).max(30 * 60 * 1e3).optional().describe("Give up after this long (default 60000).")
+      waitTimeoutMs: external_exports.number().int().min(1e3).max(30 * 60 * 1e3).optional().describe("Give up after this long (default 6000).")
     },
     async (params) => {
       const interval = params.pollIntervalMs ?? 500;
-      const deadline = Date.now() + (params.waitTimeoutMs ?? 6e4);
+      const deadline = Date.now() + (params.waitTimeoutMs ?? 6e3);
       const comparison = params.comparison ?? "equals";
       let attempts = 0;
       let last;
@@ -22489,14 +22489,14 @@ function registerEditorTools(server2) {
       buttonLabel: external_exports.string().optional().describe("Substring of the button text, matched case-insensitively. Preferred over index: it is checked against the real button and reported back."),
       buttonIndex: external_exports.number().int().min(0).optional().describe("Zero-based button position, used when no label is given. 0 is the accept button, 1 the cancel one."),
       dialogTitle: external_exports.string().optional().describe("Only act on a dialog whose title contains this. Required to target a Unity container window rather than a native dialog box."),
-      armMs: external_exports.number().int().min(500).max(12e4).optional().describe("How long to wait for the dialog to appear before giving up (default 15000)."),
+      armMs: external_exports.number().int().min(500).max(12e4).optional().describe("How long to wait for the dialog to appear before giving up (default 1500)."),
       onMiss: external_exports.enum(["cancel", "leave"]).optional().describe('What to do when no button matches. "cancel" (default) presses the last button - normally Cancel - so the editor starts ticking again, and reports missed=true so the press is not mistaken for a choice. "leave" presses nothing, which leaves the editor blocked until someone dismisses the dialog by hand.')
     },
     async (params) => toToolResult(await runBridge(params, "editor_dialog_click", {
       buttonLabel: params.buttonLabel,
       buttonIndexText: params.buttonIndex === void 0 ? void 0 : String(params.buttonIndex),
       dialogTitle: params.dialogTitle,
-      armMs: params.armMs ?? 15e3,
+      armMs: params.armMs ?? 1500,
       onMiss: params.onMiss ?? "cancel"
     }))
   );
@@ -22660,7 +22660,7 @@ async function waitForCompile(params, timeoutMs) {
   let last;
   while (Date.now() < deadline) {
     try {
-      last = await runBridge({ ...params, timeoutMs: 15e3 }, "editor_compile_status", {});
+      last = await runBridge({ ...params, timeoutMs: 1500 }, "editor_compile_status", {});
       const status = String(last.outputs?.status ?? "");
       const compiling = String(last.outputs?.isCompiling ?? "") === "true";
       if (compiling || status === "compiling") {
@@ -22689,7 +22689,7 @@ async function runBridge(params, command, extra) {
       instanceId: params.instanceId ?? 0,
       ...stripUndefined(extra)
     },
-    timeoutMs: params.timeoutMs ?? 2e4,
+    timeoutMs: params.timeoutMs ?? 2e3,
     runOnce: params.runOnce ?? false
   });
   return { ...response, outputs: decodeOutputs(response) };
@@ -23064,7 +23064,7 @@ async function unityRunTests(params) {
     commandRoot: config2.commandRoot,
     mode: params.mode,
     testFilter: params.testFilter,
-    timeoutMs: params.timeoutMs ?? 30 * 60 * 1e3
+    timeoutMs: params.timeoutMs ?? 3 * 60 * 1e3
   });
 }
 async function unityReadEditorLog(params) {
@@ -23091,7 +23091,7 @@ async function unityExecuteEditorCommand(params) {
     commandRoot: config2.commandRoot,
     command: params.command,
     parameters: params.parameters,
-    timeoutMs: params.timeoutMs ?? 15e3,
+    timeoutMs: params.timeoutMs ?? 1500,
     runOnce: params.runOnce ?? false
   });
 }
@@ -23109,7 +23109,7 @@ async function unityCaptureScreenshot(params) {
       width: params.width ?? 1280,
       height: params.height ?? 720
     },
-    timeoutMs: params.timeoutMs ?? 15e3,
+    timeoutMs: params.timeoutMs ?? 1500,
     runOnce: params.runOnce ?? false
   });
   const bytes = await fileSize(outputPath);
@@ -23133,7 +23133,7 @@ async function unityClickUiText(params) {
       text: params.text,
       includeInactive: params.includeInactive ?? false
     },
-    timeoutMs: params.timeoutMs ?? 15e3,
+    timeoutMs: params.timeoutMs ?? 1500,
     runOnce: params.runOnce ?? false
   });
 }
@@ -23144,9 +23144,9 @@ async function unityClickUiTextAndWait(params) {
     waitText: params.waitText,
     exact: params.exact ?? false,
     includeInactive: params.includeInactive ?? false,
-    timeoutMs: params.timeoutMs ?? 3e4,
+    timeoutMs: params.timeoutMs ?? 3e3,
     pollIntervalMs: params.pollIntervalMs ?? 500,
-    commandTimeoutMs: Math.min(params.timeoutMs ?? 15e3, 15e3),
+    commandTimeoutMs: Math.min(params.timeoutMs ?? 1500, 1500),
     execute: (command, parameters, timeoutMs) => executeEditorCommand({
       unityPath: config2.unityPath,
       projectPath: config2.projectPath,
@@ -23168,9 +23168,9 @@ async function unityRunUiTextQaFlow(params) {
     outputRoot,
     exact: params.exact ?? true,
     includeInactive: params.includeInactive ?? false,
-    timeoutMs: params.timeoutMs ?? 9e4,
+    timeoutMs: params.timeoutMs ?? 9e3,
     pollIntervalMs: params.pollIntervalMs ?? 500,
-    commandTimeoutMs: Math.min(params.timeoutMs ?? 15e3, 15e3),
+    commandTimeoutMs: Math.min(params.timeoutMs ?? 1500, 1500),
     width: params.width ?? 1280,
     height: params.height ?? 720,
     requireRequestedSize: params.requireRequestedSize ?? false,
@@ -23192,9 +23192,9 @@ async function unityWaitUiText(params) {
     text: params.text,
     exact: params.exact ?? false,
     includeInactive: params.includeInactive ?? false,
-    timeoutMs: params.timeoutMs ?? 3e4,
+    timeoutMs: params.timeoutMs ?? 3e3,
     pollIntervalMs: params.pollIntervalMs ?? 500,
-    commandTimeoutMs: Math.min(params.timeoutMs ?? 15e3, 15e3),
+    commandTimeoutMs: Math.min(params.timeoutMs ?? 1500, 1500),
     execute: (command, parameters, timeoutMs) => executeEditorCommand({
       unityPath: config2.unityPath,
       projectPath: config2.projectPath,
@@ -23212,9 +23212,9 @@ async function unityWaitThenClick(params) {
     text: params.text,
     exact: params.exact ?? false,
     includeInactive: params.includeInactive ?? false,
-    timeoutMs: params.timeoutMs ?? 3e4,
+    timeoutMs: params.timeoutMs ?? 3e3,
     pollIntervalMs: params.pollIntervalMs ?? 500,
-    commandTimeoutMs: Math.min(params.timeoutMs ?? 15e3, 15e3),
+    commandTimeoutMs: Math.min(params.timeoutMs ?? 1500, 1500),
     execute: (command, parameters, timeoutMs) => executeEditorCommand({
       unityPath: config2.unityPath,
       projectPath: config2.projectPath,
@@ -23230,9 +23230,9 @@ async function unitySetPlayMode(params, targetPlaying) {
   const config2 = resolveProjectConfig(params);
   return setPlayModeAndWait({
     targetPlaying,
-    timeoutMs: params.timeoutMs ?? 6e4,
+    timeoutMs: params.timeoutMs ?? 6e3,
     pollIntervalMs: params.pollIntervalMs ?? 500,
-    commandTimeoutMs: Math.min(params.timeoutMs ?? 15e3, 15e3),
+    commandTimeoutMs: Math.min(params.timeoutMs ?? 1500, 1500),
     execute: (command, parameters, timeoutMs) => executeEditorCommand({
       unityPath: config2.unityPath,
       projectPath: config2.projectPath,
@@ -23261,7 +23261,7 @@ async function unityStartFrameCapture(params) {
       maxFrames: params.maxFrames ?? 600,
       maxDurationSeconds: params.maxDurationSeconds ?? 30
     },
-    timeoutMs: params.timeoutMs ?? 15e3,
+    timeoutMs: params.timeoutMs ?? 1500,
     runOnce: params.runOnce ?? false
   });
   return {
@@ -23282,7 +23282,7 @@ async function unityStopFrameCapture(params) {
     parameters: {
       framesDir: params.framesDir
     },
-    timeoutMs: params.timeoutMs ?? 15e3,
+    timeoutMs: params.timeoutMs ?? 1500,
     runOnce: params.runOnce ?? false
   });
   const outputs = normalizeOutputs(response.outputs);
@@ -23365,7 +23365,7 @@ async function unitySimpleCommand(params, command, parameters) {
     commandRoot: config2.commandRoot,
     command,
     parameters: cleaned,
-    timeoutMs: params.timeoutMs ?? 15e3,
+    timeoutMs: params.timeoutMs ?? 1500,
     runOnce: false
   });
 }

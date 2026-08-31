@@ -420,7 +420,7 @@ export function registerEditorTools(server: McpServer): void {
       ...commonShape,
       forceRecompile: z.boolean().optional().describe('Also request a script recompilation even when no asset changed. Off by default.'),
       waitForCompile: z.boolean().optional().describe('Wait until compilation finishes (default true).'),
-      waitTimeoutMs: z.number().int().min(1000).max(30 * 60 * 1000).optional().describe('How long to wait for compilation (default 300000).'),
+      waitTimeoutMs: z.number().int().min(1000).max(30 * 60 * 1000).optional().describe('How long to wait for compilation (default 30000).'),
     },
     async (params) => {
       const requested = await runBridge(params, 'editor_refresh', {
@@ -431,7 +431,7 @@ export function registerEditorTools(server: McpServer): void {
         return toToolResult(requested);
       }
 
-      const status = await waitForCompile(params, params.waitTimeoutMs ?? 300000);
+      const status = await waitForCompile(params, params.waitTimeoutMs ?? 30000);
       return toToolResult({
         ...requested,
         outputs: { ...requested.outputs, compile: status.outputs, compileWaitTimedOut: status.timedOut },
@@ -459,11 +459,11 @@ export function registerEditorTools(server: McpServer): void {
       expected: z.string().describe('Value to wait for, compared as text.'),
       comparison: z.enum(['equals', 'contains', 'notEquals']).optional().describe('How to compare (default equals).'),
       pollIntervalMs: z.number().int().min(100).max(10000).optional().describe('Gap between reads (default 500).'),
-      waitTimeoutMs: z.number().int().min(1000).max(30 * 60 * 1000).optional().describe('Give up after this long (default 60000).'),
+      waitTimeoutMs: z.number().int().min(1000).max(30 * 60 * 1000).optional().describe('Give up after this long (default 6000).'),
     },
     async (params) => {
       const interval = params.pollIntervalMs ?? 500;
-      const deadline = Date.now() + (params.waitTimeoutMs ?? 60000);
+      const deadline = Date.now() + (params.waitTimeoutMs ?? 6000);
       const comparison = params.comparison ?? 'equals';
       let attempts = 0;
       let last: any;
@@ -620,7 +620,7 @@ export function registerEditorTools(server: McpServer): void {
       dialogTitle: z.string().optional()
         .describe('Only act on a dialog whose title contains this. Required to target a Unity container window rather than a native dialog box.'),
       armMs: z.number().int().min(500).max(120000).optional()
-        .describe('How long to wait for the dialog to appear before giving up (default 15000).'),
+        .describe('How long to wait for the dialog to appear before giving up (default 1500).'),
       onMiss: z.enum(['cancel', 'leave']).optional()
         .describe('What to do when no button matches. "cancel" (default) presses the last button - normally Cancel - so the editor starts ticking again, and reports missed=true so the press is not mistaken for a choice. "leave" presses nothing, which leaves the editor blocked until someone dismisses the dialog by hand.'),
     },
@@ -628,7 +628,7 @@ export function registerEditorTools(server: McpServer): void {
       buttonLabel: params.buttonLabel,
       buttonIndexText: params.buttonIndex === undefined ? undefined : String(params.buttonIndex),
       dialogTitle: params.dialogTitle,
-      armMs: params.armMs ?? 15000,
+      armMs: params.armMs ?? 1500,
       onMiss: params.onMiss ?? 'cancel',
     })));
 
@@ -801,7 +801,7 @@ async function waitForCompile(params: any, timeoutMs: number): Promise<{ outputs
 
   while (Date.now() < deadline) {
     try {
-      last = await runBridge({ ...params, timeoutMs: 15000 }, 'editor_compile_status', {});
+      last = await runBridge({ ...params, timeoutMs: 1500 }, 'editor_compile_status', {});
       const status = String(last.outputs?.status ?? '');
       const compiling = String(last.outputs?.isCompiling ?? '') === 'true';
 
@@ -837,7 +837,7 @@ async function runBridge(params: any, command: string, extra: Record<string, unk
       instanceId: params.instanceId ?? 0,
       ...stripUndefined(extra),
     },
-    timeoutMs: params.timeoutMs ?? 20000,
+    timeoutMs: params.timeoutMs ?? 2000,
     runOnce: params.runOnce ?? false,
   });
 

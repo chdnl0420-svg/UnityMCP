@@ -54,7 +54,7 @@ export interface UiTextQaFlowResult {
 export async function runUiTextQaFlow(options: UiTextQaFlowOptions): Promise<UiTextQaFlowResult> {
   const now = options.now ?? (() => Date.now());
   const pollIntervalMs = options.pollIntervalMs ?? 500;
-  const commandTimeoutMs = options.commandTimeoutMs ?? 15000;
+  const commandTimeoutMs = options.commandTimeoutMs ?? 1500;
   const exact = options.exact ?? true;
   const getFileSize = options.getFileSize ?? fileSize;
   const startedAt = now();
