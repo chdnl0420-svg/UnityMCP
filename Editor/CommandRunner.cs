@@ -1551,6 +1551,7 @@ namespace ProjectMQaMcp.Editor
                     labelText = command.labelText,
                     targetText = command.targetText,
                     expectHitContains = command.expectHitContains,
+                    includeOverlayUi = command.includeOverlayUi,
                     logType = command.logType,
                     maxCount = command.maxCount,
                     maxDepth = command.maxDepth,
@@ -1613,6 +1614,128 @@ namespace ProjectMQaMcp.Editor
         // view scale and DPI. Rendering cameras into our own RenderTexture is exact, matches
         // Screen.width/height (so normalized click_at coords map 1:1 onto the image), and does not
         // depend on window layout or focus at all.
+        private sealed class BorrowedCanvas
+        {
+            public Canvas Canvas;
+            public RenderMode Mode;
+            public Camera Camera;
+            public float PlaneDistance;
+        }
+
+        // Far away from any scene content so the capture camera sees nothing but the borrowed canvases.
+        private static readonly Vector3 OverlayCameraPosition = new Vector3(0f, -100000f, 0f);
+
+        private static Camera CreateOverlayCaptureCamera()
+        {
+            var go = new GameObject("[MCP] OverlayCaptureCamera") { hideFlags = HideFlags.HideAndDontSave };
+            go.transform.position = OverlayCameraPosition;
+            go.transform.rotation = Quaternion.identity;
+            var camera = go.AddComponent<Camera>();
+            camera.enabled = false;
+            camera.orthographic = true;
+            camera.nearClipPlane = 0.1f;
+            camera.farClipPlane = 10f;
+            // The scene comes back as the back-most canvas (CreateSceneBackground), so a plain clear is fine.
+            camera.clearFlags = CameraClearFlags.SolidColor;
+            camera.backgroundColor = Color.black;
+            return camera;
+        }
+
+        // The back-most canvas of the capture camera: a full-screen RawImage showing the scene render.
+        // RawImage lives in uGUI, found by reflection like the rest of the uGUI path. Null when uGUI is missing.
+        private static GameObject CreateSceneBackground(Camera camera, RenderTexture scene, CommandResponse response)
+        {
+            var rawImageType = UguiType("UnityEngine.UI.RawImage");
+            if (rawImageType == null)
+            {
+                return null;
+            }
+
+            var go = new GameObject("[MCP] OverlayCaptureScene") { hideFlags = HideFlags.HideAndDontSave };
+            var canvas = go.AddComponent<Canvas>();
+            canvas.renderMode = RenderMode.ScreenSpaceCamera;
+            canvas.worldCamera = camera;
+            canvas.planeDistance = 5f;
+            canvas.sortingOrder = short.MinValue;
+
+            var image = new GameObject("Scene", typeof(RectTransform)) { hideFlags = HideFlags.HideAndDontSave };
+            var rect = (RectTransform)image.transform;
+            rect.SetParent(go.transform, false);
+            rect.anchorMin = Vector2.zero;
+            rect.anchorMax = Vector2.one;
+            rect.offsetMin = Vector2.zero;
+            rect.offsetMax = Vector2.zero;
+            var raw = image.AddComponent(rawImageType);
+            rawImageType.GetProperty("texture")?.SetValue(raw, scene);
+            rawImageType.GetProperty("raycastTarget")?.SetValue(raw, false);
+            return go;
+        }
+
+        private static void RenderOverlayCamera(Camera camera, RenderTexture target)
+        {
+            var previousActive = RenderTexture.active;
+            try
+            {
+                camera.targetTexture = target;
+                camera.Render();
+            }
+            finally
+            {
+                camera.targetTexture = null;
+                RenderTexture.active = previousActive;
+            }
+        }
+
+        // Screen Space Overlay canvases are not drawn by any camera, so cameraComposite misses them (title screens,
+        // HUDs, menus). For the capture only, each root overlay canvas is borrowed as Screen Space Camera on a
+        // dedicated capture camera, keeping the canvases' own sorting order. ReturnOverlayCanvases restores the
+        // runtime values right after; nothing is serialized, so the scene is not dirtied.
+        private static List<BorrowedCanvas> BorrowOverlayCanvases(Camera top, CommandResponse response)
+        {
+            var borrowed = new List<BorrowedCanvas>();
+
+            foreach (var canvas in Object.FindObjectsByType<Canvas>(FindObjectsInactive.Exclude, FindObjectsSortMode.None))
+            {
+                if (!canvas.isRootCanvas || canvas.renderMode != RenderMode.ScreenSpaceOverlay)
+                {
+                    continue;
+                }
+                borrowed.Add(new BorrowedCanvas
+                {
+                    Canvas = canvas,
+                    Mode = canvas.renderMode,
+                    Camera = canvas.worldCamera,
+                    PlaneDistance = canvas.planeDistance,
+                });
+                canvas.renderMode = RenderMode.ScreenSpaceCamera;
+                canvas.worldCamera = top;
+                canvas.planeDistance = 1f;
+            }
+
+            Canvas.ForceUpdateCanvases();
+            response.AddOutput("overlayCanvases", borrowed.Count.ToString(CultureInfo.InvariantCulture));
+            return borrowed;
+        }
+
+        private static void ReturnOverlayCanvases(List<BorrowedCanvas> borrowed)
+        {
+            if (borrowed == null)
+            {
+                return;
+            }
+            foreach (var entry in borrowed)
+            {
+                if (entry.Canvas == null)
+                {
+                    continue;
+                }
+                entry.Canvas.renderMode = entry.Mode;
+                entry.Canvas.worldCamera = entry.Camera;
+                entry.Canvas.planeDistance = entry.PlaneDistance;
+            }
+            Canvas.ForceUpdateCanvases();
+        }
+
         private static void RenderCamerasToTexture(RenderTexture target, string cameraName)
         {
             var cameras = string.IsNullOrEmpty(cameraName)
@@ -1683,18 +1806,59 @@ namespace ProjectMQaMcp.Editor
 
             var renderTexture = new RenderTexture(width, height, 24);
             var texture = new Texture2D(width, height, TextureFormat.RGB24, false);
+            List<BorrowedCanvas> overlays = null;
+            Camera overlayCamera = null;
+            GameObject sceneBackground = null;
+            RenderTexture composed = null;
             try
             {
                 RenderCamerasToTexture(renderTexture, parameters.cameraName);
-                WriteTextureToPng(renderTexture, texture, outputPath);
+                var final = renderTexture;
+                if (parameters.includeOverlayUi)
+                {
+                    // Overlay UI goes on after the scene through its own camera, so per-camera effects of the game
+                    // (post-processing, custom blur passes) never touch the UI - exactly like the real overlay.
+                    // Render pipelines differ on whether a camera may skip clearing (URP always clears), so the scene
+                    // is not kept in the target: it is shown again as the back-most canvas of the capture camera,
+                    // and the overlay canvases blend over it exactly as they do on screen.
+                    composed = new RenderTexture(width, height, 24);
+                    overlayCamera = CreateOverlayCaptureCamera();
+                    // Target first: a Screen Space Camera canvas sizes itself from its camera's pixel size.
+                    overlayCamera.targetTexture = composed;
+                    sceneBackground = CreateSceneBackground(overlayCamera, renderTexture, response);
+                    if (sceneBackground != null)
+                    {
+                        overlays = BorrowOverlayCanvases(overlayCamera, response);
+                        RenderOverlayCamera(overlayCamera, composed);
+                        final = composed;
+                    }
+                }
+                WriteTextureToPng(final, texture, outputPath);
             }
             finally
             {
+                ReturnOverlayCanvases(overlays);
+                if (sceneBackground != null)
+                {
+                    Object.DestroyImmediate(sceneBackground);
+                }
+                if (overlayCamera != null)
+                {
+                    Object.DestroyImmediate(overlayCamera.gameObject);
+                }
+                if (composed != null)
+                {
+                    Object.DestroyImmediate(composed);
+                }
                 Object.DestroyImmediate(texture);
                 Object.DestroyImmediate(renderTexture);
             }
 
-            response.AddOutput("mode", "cameraComposite");
+            response.AddOutput("mode", overlays != null ? "cameraComposite+overlayUi" : "cameraComposite");
+            if (parameters.includeOverlayUi && overlays == null)
+            {
+                response.logs.Add($"{LogPrefix} includeOverlayUi: uGUI (RawImage) not available - captured the cameras only.");
+            }
             response.AddOutput("width", width.ToString());
             response.AddOutput("height", height.ToString());
             var info = new FileInfo(outputPath);
@@ -1866,6 +2030,13 @@ namespace ProjectMQaMcp.Editor
             response.AddOutput("isPlaying", Application.isPlaying.ToString());
 
             var target = NguiRaycast(screenPos);
+            // uGUI (Unity UI): when NGUI hits nothing, raycast through EventSystem and send the click as uGUI events.
+            var viaUgui = false;
+            if (target == null)
+            {
+                target = UguiRaycast(screenPos, response);
+                viaUgui = target != null;
+            }
             if (target == null)
             {
                 target = PhysicsPick(parameters, response, pointX, pointY);
@@ -1906,7 +2077,27 @@ namespace ProjectMQaMcp.Editor
                 return;
             }
 
-            if (!NotifyNgui(target, "OnClick", null))
+            if (viaUgui)
+            {
+                // Same order as a real click: down, up, click - each sent up the hierarchy to the first handler
+                // (a Button is usually the parent of the label that the raycast hit).
+                var handled = UguiClick(target, screenPos);
+                response.AddOutput("uiSystem", "ugui");
+                response.AddOutput("clickHandler", handled ?? "none");
+                if (handled == null)
+                {
+                    response.AddOutput("hitPath", hitPath);
+                    response.AddOutput("hitName", target.name);
+                    response.AddOutput("clicked", "false");
+                    response.success = false;
+                    response.error = new CommandError
+                    {
+                        message = $"uGUI hit '{target.name}' has no pointer click handler in its parents."
+                    };
+                    return;
+                }
+            }
+            else if (!NotifyNgui(target, "OnClick", null))
             {
                 target.SendMessage("OnClick", null, SendMessageOptions.DontRequireReceiver);
                 response.logs.Add($"{LogPrefix} UICamera.Notify not found; used SendMessage fallback.");
@@ -2084,6 +2275,86 @@ namespace ProjectMQaMcp.Editor
             }
 
             response.AddOutput("clicked", "true");
+        }
+
+        // uGUI (com.unity.ugui) is not a compile reference of this bridge, so NGUI-only projects still compile.
+        // It is found by reflection; when absent the uGUI path returns null and the next method is tried.
+        private const string UguiAssembly = "UnityEngine.UI";
+
+        private static Type UguiType(string fullName)
+        {
+            return Type.GetType($"{fullName}, {UguiAssembly}");
+        }
+
+        // Raycasts a screen point through EventSystem.current and returns the top-most uGUI object
+        // (only Graphics with raycastTarget on are hit). Null when uGUI or an EventSystem is missing.
+        private static GameObject UguiRaycast(Vector3 screenPos, CommandResponse response)
+        {
+            var eventSystemType = UguiType("UnityEngine.EventSystems.EventSystem");
+            var pointerType = UguiType("UnityEngine.EventSystems.PointerEventData");
+            var resultType = UguiType("UnityEngine.EventSystems.RaycastResult");
+            if (eventSystemType == null || pointerType == null || resultType == null)
+            {
+                return null;
+            }
+
+            var current = eventSystemType.GetProperty("current", BindingFlags.Public | BindingFlags.Static)?.GetValue(null);
+            if (current == null)
+            {
+                response.logs.Add($"{LogPrefix} uGUI: no EventSystem.current in the scene.");
+                return null;
+            }
+
+            var pointer = Activator.CreateInstance(pointerType, current);
+            pointerType.GetProperty("position")?.SetValue(pointer, (Vector2)screenPos);
+            var results = Activator.CreateInstance(typeof(List<>).MakeGenericType(resultType));
+            eventSystemType.GetMethod("RaycastAll")?.Invoke(current, new[] { pointer, results });
+
+            var list = (System.Collections.IList)results;
+            if (list.Count == 0)
+            {
+                return null;
+            }
+
+            // RaycastAll sorts nearest (drawn on top) first.
+            return resultType.GetProperty("gameObject")?.GetValue(list[0]) as GameObject;
+        }
+
+        // uGUI click: pointer down, up and click through ExecuteEvents.ExecuteHierarchy.
+        // Returns the name of the object that took the click, or null when nothing handled it.
+        private static string UguiClick(GameObject target, Vector3 screenPos)
+        {
+            var eventSystemType = UguiType("UnityEngine.EventSystems.EventSystem");
+            var pointerType = UguiType("UnityEngine.EventSystems.PointerEventData");
+            var executeType = UguiType("UnityEngine.EventSystems.ExecuteEvents");
+            if (eventSystemType == null || pointerType == null || executeType == null)
+            {
+                return null;
+            }
+
+            var current = eventSystemType.GetProperty("current", BindingFlags.Public | BindingFlags.Static)?.GetValue(null);
+            var pointer = Activator.CreateInstance(pointerType, current);
+            pointerType.GetProperty("position")?.SetValue(pointer, (Vector2)screenPos);
+            pointerType.GetProperty("pressPosition")?.SetValue(pointer, (Vector2)screenPos);
+            pointerType.GetProperty("clickCount")?.SetValue(pointer, 1);
+            pointerType.GetProperty("eligibleForClick")?.SetValue(pointer, true);
+            pointerType.GetProperty("pointerPress")?.SetValue(pointer, target);
+            pointerType.GetProperty("rawPointerPress")?.SetValue(pointer, target);
+
+            var hierarchy = executeType.GetMethods(BindingFlags.Public | BindingFlags.Static)
+                .First(method => method.Name == "ExecuteHierarchy" && method.IsGenericMethodDefinition);
+
+            object Send(string handlerName, string interfaceName)
+            {
+                var handlerInterface = UguiType($"UnityEngine.EventSystems.{interfaceName}");
+                var function = executeType.GetProperty(handlerName, BindingFlags.Public | BindingFlags.Static)?.GetValue(null);
+                return hierarchy.MakeGenericMethod(handlerInterface).Invoke(null, new[] { target, pointer, function });
+            }
+
+            Send("pointerDownHandler", "IPointerDownHandler");
+            Send("pointerUpHandler", "IPointerUpHandler");
+            var clicked = Send("pointerClickHandler", "IPointerClickHandler") as GameObject;
+            return clicked != null ? clicked.name : null;
         }
 
         private static GameObject NguiRaycast(Vector3 screenPos)
@@ -2860,6 +3131,7 @@ namespace ProjectMQaMcp.Editor
         public string labelText;
         public string targetText;
         public string expectHitContains;
+        public bool includeOverlayUi;
         public string logType;
         public int maxCount;
         public int maxDepth;
@@ -3053,6 +3325,7 @@ namespace ProjectMQaMcp.Editor
         public string labelText;
         public string targetText;
         public string expectHitContains;
+        public bool includeOverlayUi;
         public string logType;
         public int maxCount;
         public int maxDepth;

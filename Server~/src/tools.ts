@@ -66,9 +66,19 @@ export function registerTools(server: McpServer): void {
     width: z.number().int().positive().max(8192).optional(),
     height: z.number().int().positive().max(8192).optional(),
     requireRequestedSize: z.boolean().optional(),
+    includeOverlayUi: z.boolean().optional().describe('Also draw Screen Space Overlay uGUI canvases (title screens, HUDs, menus) into the capture. They are borrowed onto the top camera only while capturing.'),
     timeoutMs: timeoutSchema,
     runOnce: z.boolean().optional(),
   }, async (params) => toToolResult(await unityCaptureScreenshot(params)));
+
+  server.tool('unity_click_at', 'Clicks the UI at a normalized screen point (0,0 = top-left, 1,1 = bottom-right) in Play Mode: NGUI first, then uGUI through EventSystem, then a physics pick. Pass expectHitContains to refuse a click that would land on something else.', {
+    ...baseConfigShape,
+    pointX: z.number().min(0).max(1),
+    pointY: z.number().min(0).max(1),
+    expectHitContains: z.string().optional(),
+    timeoutMs: timeoutSchema,
+    runOnce: z.boolean().optional(),
+  }, async (params) => toToolResult(await unityClickAt(params)));
 
   server.tool('unity_click_ui_text', 'Finds a visible NGUI label by text and clicks its resolved clickable target.', {
     ...baseConfigShape,
@@ -436,6 +446,7 @@ async function unityCaptureScreenshot(params: any): Promise<unknown> {
       cameraName: params.cameraName,
       width: params.width ?? 1280,
       height: params.height ?? 720,
+      includeOverlayUi: params.includeOverlayUi ?? false,
     },
     timeoutMs: params.timeoutMs ?? 1500,
     runOnce: params.runOnce ?? false,
@@ -449,6 +460,23 @@ async function unityCaptureScreenshot(params: any): Promise<unknown> {
     requestedWidth: params.width ?? 1280,
     requestedHeight: params.height ?? 720,
     requireRequestedSize: params.requireRequestedSize ?? false,
+  });
+}
+
+async function unityClickAt(params: any): Promise<unknown> {
+  const config = resolveProjectConfig(params);
+  return executeEditorCommand({
+    unityPath: config.unityPath,
+    projectPath: config.projectPath,
+    commandRoot: config.commandRoot,
+    command: 'click_at',
+    parameters: {
+      pointX: params.pointX,
+      pointY: params.pointY,
+      expectHitContains: params.expectHitContains,
+    },
+    timeoutMs: params.timeoutMs ?? 1500,
+    runOnce: params.runOnce ?? false,
   });
 }
 
