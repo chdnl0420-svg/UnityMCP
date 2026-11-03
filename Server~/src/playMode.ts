@@ -1,4 +1,5 @@
 import { EditorCommandResponse } from './commandBridge.js';
+import { clampTimeout } from './timeouts.js';
 
 export interface PlayModeWaitOptions {
   targetPlaying: boolean;
@@ -25,6 +26,8 @@ export interface PlayModeWaitResult {
 }
 
 export async function setPlayModeAndWait(options: PlayModeWaitOptions): Promise<PlayModeWaitResult> {
+  // The whole poll loop shares one budget, so clamping it here caps every wait below.
+  const timeoutMs = clampTimeout(options.timeoutMs);
   const now = options.now ?? (() => Date.now());
   const delay = options.delay ?? defaultDelay;
   const pollIntervalMs = options.pollIntervalMs ?? 500;
@@ -50,7 +53,7 @@ export async function setPlayModeAndWait(options: PlayModeWaitOptions): Promise<
 
   let polls = 0;
   let lastStatus: EditorCommandResponse | undefined;
-  while (now() - startedAt < options.timeoutMs) {
+  while (now() - startedAt < timeoutMs) {
     lastStatus = await options.execute('editor_status', {}, commandTimeoutMs);
     polls += 1;
 
@@ -81,7 +84,7 @@ export async function setPlayModeAndWait(options: PlayModeWaitOptions): Promise<
     transitionResponse,
     lastStatus,
     error: {
-      message: `Timed out waiting for PlayMode=${options.targetPlaying} after ${options.timeoutMs}ms`,
+      message: `Timed out waiting for PlayMode=${options.targetPlaying} after ${timeoutMs}ms`,
     },
   };
 }

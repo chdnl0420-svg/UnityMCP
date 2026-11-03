@@ -3,6 +3,7 @@ import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { fileSize, pathExists, readJsonFile, writeJsonAtomic } from './utils/files.js';
 import { runUnityExecuteMethod } from './unityCli.js';
+import { clampTimeout } from './timeouts.js';
 
 export interface EditorCommandRequest {
   id: string;
@@ -18,6 +19,8 @@ export interface EditorCommandResponse {
   elapsedMs: number;
   logs: string[];
   outputs: unknown;
+  /** The wait this call actually ran with. Fixed by the bridge; a caller cannot set it. */
+  timeoutUsedMs?: number;
   error?: {
     message: string;
     details?: string;
@@ -35,6 +38,8 @@ export interface ExecuteEditorCommandOptions {
 }
 
 export async function executeEditorCommand(options: ExecuteEditorCommandOptions): Promise<EditorCommandResponse> {
+  // Last gate before anything actually waits: every single bridge command funnels through here.
+  const timeoutMs = clampTimeout(options.timeoutMs);
   const id = `${Date.now()}-${randomUUID()}`;
   const requestsDir = join(options.commandRoot, 'requests');
   const responsesDir = join(options.commandRoot, 'responses');
@@ -64,14 +69,16 @@ export async function executeEditorCommand(options: ExecuteEditorCommandOptions)
       options.projectPath,
       'ProjectMQaMcp.Editor.CommandRunner.RunOnce',
       logPath,
-      options.timeoutMs,
+      timeoutMs,
     );
   }
 
   const startedAt = Date.now();
-  while (Date.now() - startedAt < options.timeoutMs) {
+  while (Date.now() - startedAt < timeoutMs) {
     if (await pathExists(responsePath)) {
-      return readJsonFile<EditorCommandResponse>(responsePath);
+      const response = await readJsonFile<EditorCommandResponse>(responsePath);
+      // Stale clients may still send a timeout of their own; reporting the real one shows it was ignored.
+      return { ...response, timeoutUsedMs: timeoutMs };
     }
     await delay(250);
   }
@@ -91,8 +98,9 @@ export async function executeEditorCommand(options: ExecuteEditorCommandOptions)
       responsePath,
       responseBytes: await fileSize(responsePath),
     },
+    timeoutUsedMs: timeoutMs,
     error: {
-      message: `Timed out waiting for Unity response after ${options.timeoutMs}ms`,
+      message: `Timed out waiting for Unity response after ${timeoutMs}ms`,
     },
   };
 }

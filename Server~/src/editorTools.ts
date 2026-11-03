@@ -4,6 +4,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { resolveProjectConfig } from './config.js';
 import { executeEditorCommand, EditorCommandResponse } from './commandBridge.js';
 import { fileSize, pathExists } from './utils/files.js';
+import { BRIDGE_TIMEOUT_MS, COMPILE_WAIT_MS, DIALOG_ARM_MS, FIELD_WAIT_MS, clampTimeout } from './timeouts.js';
 
 /**
  * MCP tools for driving Unity *editor* tools (EditorWindow) and the in-editor test runner.
@@ -24,11 +25,8 @@ const windowShape = {
   instanceId: z.number().int().optional().describe('Exact window instance id from unity_editor_window_list.'),
 };
 
-const timeoutSchema = z.number().int().positive().max(60 * 60 * 1000).optional();
-
 const commonShape = {
   ...baseConfigShape,
-  timeoutMs: timeoutSchema,
   runOnce: z.boolean().optional(),
 };
 
@@ -420,7 +418,6 @@ export function registerEditorTools(server: McpServer): void {
       ...commonShape,
       forceRecompile: z.boolean().optional().describe('Also request a script recompilation even when no asset changed. Off by default.'),
       waitForCompile: z.boolean().optional().describe('Wait until compilation finishes (default true).'),
-      waitTimeoutMs: z.number().int().min(1000).max(30 * 60 * 1000).optional().describe('How long to wait for compilation (default 30000).'),
     },
     async (params) => {
       const requested = await runBridge(params, 'editor_refresh', {
@@ -431,10 +428,16 @@ export function registerEditorTools(server: McpServer): void {
         return toToolResult(requested);
       }
 
-      const status = await waitForCompile(params, params.waitTimeoutMs ?? 30000);
+      const status = await waitForCompile(params, COMPILE_WAIT_MS);
       return toToolResult({
         ...requested,
-        outputs: { ...requested.outputs, compile: status.outputs, compileWaitTimedOut: status.timedOut },
+        outputs: {
+          ...requested.outputs,
+          compile: status.outputs,
+          compileWaitTimedOut: status.timedOut,
+          // Reported so the caller can see the wait that ran. It is not theirs to set.
+          compileWaitMs: COMPILE_WAIT_MS,
+        },
         // An editor that came back with compile errors is not a successful refresh from the caller's side.
         success: requested.success && !status.timedOut && Number(status.outputs?.errorCount ?? 0) === 0,
       });
@@ -459,11 +462,10 @@ export function registerEditorTools(server: McpServer): void {
       expected: z.string().describe('Value to wait for, compared as text.'),
       comparison: z.enum(['equals', 'contains', 'notEquals']).optional().describe('How to compare (default equals).'),
       pollIntervalMs: z.number().int().min(100).max(10000).optional().describe('Gap between reads (default 500).'),
-      waitTimeoutMs: z.number().int().min(1000).max(30 * 60 * 1000).optional().describe('Give up after this long (default 6000).'),
     },
     async (params) => {
       const interval = params.pollIntervalMs ?? 500;
-      const deadline = Date.now() + (params.waitTimeoutMs ?? 6000);
+      const deadline = Date.now() + clampTimeout(FIELD_WAIT_MS);
       const comparison = params.comparison ?? 'equals';
       let attempts = 0;
       let last: any;
@@ -619,8 +621,6 @@ export function registerEditorTools(server: McpServer): void {
         .describe('Zero-based button position, used when no label is given. 0 is the accept button, 1 the cancel one.'),
       dialogTitle: z.string().optional()
         .describe('Only act on a dialog whose title contains this. Required to target a Unity container window rather than a native dialog box.'),
-      armMs: z.number().int().min(500).max(120000).optional()
-        .describe('How long to wait for the dialog to appear before giving up (default 1500).'),
       onMiss: z.enum(['cancel', 'leave']).optional()
         .describe('What to do when no button matches. "cancel" (default) presses the last button - normally Cancel - so the editor starts ticking again, and reports missed=true so the press is not mistaken for a choice. "leave" presses nothing, which leaves the editor blocked until someone dismisses the dialog by hand.'),
     },
@@ -628,7 +628,7 @@ export function registerEditorTools(server: McpServer): void {
       buttonLabel: params.buttonLabel,
       buttonIndexText: params.buttonIndex === undefined ? undefined : String(params.buttonIndex),
       dialogTitle: params.dialogTitle,
-      armMs: params.armMs ?? 1500,
+      armMs: DIALOG_ARM_MS,
       onMiss: params.onMiss ?? 'cancel',
     })));
 
@@ -794,14 +794,15 @@ function dragParameters(params: any): Record<string, unknown> {
  * a failed poll is treated as "still busy" rather than as a verdict, or every recompile would look
  * like an error.
  */
-async function waitForCompile(params: any, timeoutMs: number): Promise<{ outputs: any; timedOut: boolean }> {
+async function waitForCompile(params: any, requestedTimeoutMs: number): Promise<{ outputs: any; timedOut: boolean }> {
+  const timeoutMs = clampTimeout(requestedTimeoutMs);
   const deadline = Date.now() + timeoutMs;
   let started = false;
   let last: any;
 
   while (Date.now() < deadline) {
     try {
-      last = await runBridge({ ...params, timeoutMs: 1500 }, 'editor_compile_status', {});
+      last = await runBridge(params, 'editor_compile_status', {});
       const status = String(last.outputs?.status ?? '');
       const compiling = String(last.outputs?.isCompiling ?? '') === 'true';
 
@@ -837,7 +838,7 @@ async function runBridge(params: any, command: string, extra: Record<string, unk
       instanceId: params.instanceId ?? 0,
       ...stripUndefined(extra),
     },
-    timeoutMs: params.timeoutMs ?? 2000,
+    timeoutMs: clampTimeout(BRIDGE_TIMEOUT_MS),
     runOnce: params.runOnce ?? false,
   });
 

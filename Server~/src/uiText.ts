@@ -1,5 +1,6 @@
 import { EditorCommandResponse } from './commandBridge.js';
 import { normalizeOutputs } from './playMode.js';
+import { clampTimeout } from './timeouts.js';
 
 export interface WaitUiTextOptions {
   text: string;
@@ -83,6 +84,8 @@ export interface WaitThenClickResult {
 }
 
 export async function waitThenClick(options: WaitThenClickOptions): Promise<WaitThenClickResult> {
+  // The whole poll loop shares one budget, so clamping it here caps every wait below.
+  const timeoutMs = clampTimeout(options.timeoutMs);
   const now = options.now ?? (() => Date.now());
   const exact = options.exact ?? false;
   const commandTimeoutMs = options.commandTimeoutMs ?? 1500;
@@ -92,7 +95,7 @@ export async function waitThenClick(options: WaitThenClickOptions): Promise<Wait
     text: options.text,
     exact,
     includeInactive: options.includeInactive,
-    timeoutMs: options.timeoutMs,
+    timeoutMs,
     pollIntervalMs: options.pollIntervalMs,
     commandTimeoutMs,
     execute: options.execute,
@@ -133,6 +136,8 @@ export async function waitThenClick(options: WaitThenClickOptions): Promise<Wait
 }
 
 export async function clickUiTextAndWait(options: ClickUiTextAndWaitOptions): Promise<ClickUiTextAndWaitResult> {
+  // The whole poll loop shares one budget, so clamping it here caps every wait below.
+  const timeoutMs = clampTimeout(options.timeoutMs);
   const now = options.now ?? (() => Date.now());
   const exact = options.exact ?? false;
   const commandTimeoutMs = options.commandTimeoutMs ?? 1500;
@@ -157,7 +162,7 @@ export async function clickUiTextAndWait(options: ClickUiTextAndWaitOptions): Pr
     };
   }
 
-  const remainingMs = Math.max(0, options.timeoutMs - (now() - startedAt));
+  const remainingMs = Math.max(0, timeoutMs - (now() - startedAt));
   const waitResult = await waitForUiText({
     text: options.waitText,
     exact,
@@ -186,6 +191,8 @@ export async function clickUiTextAndWait(options: ClickUiTextAndWaitOptions): Pr
 }
 
 export async function waitForUiText(options: WaitUiTextOptions): Promise<WaitUiTextResult> {
+  // The whole poll loop shares one budget, so clamping it here caps every wait below.
+  const timeoutMs = clampTimeout(options.timeoutMs);
   const now = options.now ?? (() => Date.now());
   const delay = options.delay ?? defaultDelay;
   const exact = options.exact ?? false;
@@ -196,7 +203,7 @@ export async function waitForUiText(options: WaitUiTextOptions): Promise<WaitUiT
   let lastUi = '';
   let lastResponse: EditorCommandResponse | undefined;
 
-  while (now() - startedAt < options.timeoutMs) {
+  while (now() - startedAt < timeoutMs) {
     lastResponse = await options.execute('dump_ui', {
       includeInactive: options.includeInactive ?? false,
     }, commandTimeoutMs);
@@ -243,7 +250,7 @@ export async function waitForUiText(options: WaitUiTextOptions): Promise<WaitUiT
     lastUi,
     lastResponse,
     error: {
-      message: `Timed out waiting for UI text "${options.text}" after ${options.timeoutMs}ms`,
+      message: `Timed out waiting for UI text "${options.text}" after ${timeoutMs}ms`,
     },
   };
 }

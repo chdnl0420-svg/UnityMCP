@@ -2,7 +2,8 @@
   "name": "ProjectMQaMcp.Editor",
   "rootNamespace": "ProjectMQaMcp.Editor",
   "references": [
-    "UnityEditor.TestRunner"
+    "UnityEditor.TestRunner",
+    "Unity.InputSystem"
   ],
   "includePlatforms": [
     "Editor"
@@ -18,6 +19,11 @@
       "name": "com.unity.test-framework",
       "expression": "1.1.0",
       "define": "PROJECTM_TEST_FRAMEWORK"
+    },
+    {
+      "name": "com.unity.inputsystem",
+      "expression": "1.0.0",
+      "define": "PROJECTM_INPUT_SYSTEM"
     }
   ],
   "noEngineReferences": false

@@ -4,6 +4,7 @@ import { PlayModeWaitResult, setPlayModeAndWait } from './playMode.js';
 import { ClickUiTextAndWaitResult, WaitUiTextResult, clickUiTextAndWait, waitForUiText } from './uiText.js';
 import { fileSize } from './utils/files.js';
 import { verifyScreenshotResponse } from './screenshot.js';
+import { clampTimeout } from './timeouts.js';
 
 export interface UiTextQaFlowOptions {
   initialText: string;
@@ -52,6 +53,8 @@ export interface UiTextQaFlowResult {
 }
 
 export async function runUiTextQaFlow(options: UiTextQaFlowOptions): Promise<UiTextQaFlowResult> {
+  // The whole poll loop shares one budget, so clamping it here caps every wait below.
+  const timeoutMs = clampTimeout(options.timeoutMs);
   const now = options.now ?? (() => Date.now());
   const pollIntervalMs = options.pollIntervalMs ?? 500;
   const commandTimeoutMs = options.commandTimeoutMs ?? 1500;
@@ -75,7 +78,7 @@ export async function runUiTextQaFlow(options: UiTextQaFlowOptions): Promise<UiT
   const enter = await recordStep(steps, 'enter_play_mode', now, async () => {
     return setPlayModeAndWait({
       targetPlaying: true,
-      timeoutMs: remainingMs(options.timeoutMs, startedAt, now),
+      timeoutMs: remainingMs(timeoutMs, startedAt, now),
       pollIntervalMs,
       commandTimeoutMs,
       execute: options.execute,
@@ -93,7 +96,7 @@ export async function runUiTextQaFlow(options: UiTextQaFlowOptions): Promise<UiT
       text: options.initialText,
       exact,
       includeInactive: options.includeInactive,
-      timeoutMs: remainingMs(options.timeoutMs, startedAt, now),
+      timeoutMs: remainingMs(timeoutMs, startedAt, now),
       pollIntervalMs,
       commandTimeoutMs,
       execute: options.execute,
@@ -125,7 +128,7 @@ export async function runUiTextQaFlow(options: UiTextQaFlowOptions): Promise<UiT
       waitText: options.expectedText,
       exact,
       includeInactive: options.includeInactive,
-      timeoutMs: remainingMs(options.timeoutMs, startedAt, now),
+      timeoutMs: remainingMs(timeoutMs, startedAt, now),
       pollIntervalMs,
       commandTimeoutMs,
       execute: options.execute,
@@ -155,7 +158,7 @@ export async function runUiTextQaFlow(options: UiTextQaFlowOptions): Promise<UiT
     const exit = await recordStep(steps, 'exit_play_mode', now, async () => {
       return setPlayModeAndWait({
         targetPlaying: false,
-        timeoutMs: remainingMs(options.timeoutMs, startedAt, now),
+        timeoutMs: remainingMs(timeoutMs, startedAt, now),
         pollIntervalMs,
         commandTimeoutMs,
         execute: options.execute,

@@ -172,8 +172,17 @@ namespace ProjectMQaMcp.Editor
             {
                 stopwatch.Stop();
                 response.elapsedMs = stopwatch.ElapsedMilliseconds;
-                WriteResponse(response);
-                TryArchiveRequest(requestPath);
+                if (response.deferred)
+                {
+                    // 아직 안 끝난 명령이다. 여기서 응답을 쓰면 결과가 나오기도 전에
+                    // "성공"이 먼저 나가 버리므로, 요청 경로만 넘겨 두고 그 명령이 마무리하게 둔다.
+                    RegisterDeferredRequestPath(requestPath);
+                }
+                else
+                {
+                    WriteResponse(response);
+                    TryArchiveRequest(requestPath);
+                }
             }
         }
 
@@ -225,6 +234,9 @@ namespace ProjectMQaMcp.Editor
                     break;
                 case "click_at":
                     ClickAt(parameters, response);
+                    break;
+                case "game_key":
+                    GameKey(parameters, response);
                     break;
                 case "click_ui_text":
                     ClickUiText(parameters, response);
@@ -2017,6 +2029,270 @@ namespace ProjectMQaMcp.Editor
             response.AddOutput("clicked", "true");
         }
 
+        // 게임(플레이 중)의 키 입력을 브릿지에서 직접 만들어 준다.
+        // 이 프로젝트는 activeInputHandler 가 Both 이고 NxInput 이 Keyboard.current 를 읽으므로,
+        // Input System 의 상태 이벤트를 큐에 넣으면 게임이 실제 키를 누른 것으로 인식한다.
+        // OS 키보드를 가로채지 않으므로 작업자의 입력 장치를 빼앗지 않는다.
+        // ---- game_key: PlayMode 게임에 키 입력을 게임 프레임에 맞춰 주입한다 ----
+        //
+        // 게임은 키를 NxInput.GetKeyDown -> Keyboard.current[key].wasPressedThisFrame 로 읽는다.
+        // 이 값은 "이번 InputSystem update 에서 눌림 전이가 있었나"를 보는 것이라, 게임이
+        // 그것을 보려면 눌림 이벤트가 반드시 게임과 같은 Dynamic update 에서 처리돼야 한다.
+        //
+        // 실패했던 두 방식(실측 2026-09-01, 이 프로젝트 에디터).
+        //   1) EditorApplication.delayCall 로 해제 -> 게임 프레임과 정렬되지 않아 연속 호출 시
+        //      큐가 [눌림1, 눌림2, 해제1, 해제2] 로 섞였다. 두 번째 호출부터 무반응.
+        //   2) EditorApplication.update 에서 QueueStateEvent -> 에디터 update 가 그 이벤트를
+        //      먼저 소비했다. 브릿지에서 isPressed 는 true 로 보이는데(에디터 step 에 반영됐으니)
+        //      게임의 Dynamic update 는 전이를 못 봐 헬퍼 토글이 안 걸렸다. 응답만 성공이고
+        //      화면은 그대로인, 가장 속기 쉬운 실패였다.
+        //
+        // 그래서 모든 큐잉을 InputSystem.onBeforeUpdate 안에서, 그것도 currentUpdateType 이
+        // Dynamic 일 때만 한다. onBeforeUpdate 는 그 update 가 이벤트를 처리하기 직전에 불리므로,
+        // 여기서 넣은 눌림은 같은 Dynamic update 에서 처리되고 같은 프레임의 게임 Update /
+        // LateUpdate 가 wasPressedThisFrame 를 true 로 읽는다.
+        //
+        // Dynamic update 는 게임 프레임당 한 번이라 여기서 세는 횟수가 곧 게임 프레임 수다.
+        //   stage 0) 잔여 눌림 해제를 큐에 넣는다
+        //   stage 1) 해제가 반영된 것을 확인하고 눌림을 큐에 넣는다
+        //   stage 2) 눌림이 2프레임 이상 유지된 것을 확인하고 해제를 큐에 넣는다
+        //   stage 3) 해제 반영을 확인하고 응답한다
+        // onBeforeUpdate 는 update 전에 불리므로 여기서 읽는 isPressed 는 직전 update 의 결과다.
+        // 즉 stage 2 에서 isPressed 가 true 로 보였다는 것은 그 눌림이 Dynamic step 에서 처리됐다는
+        // 뜻이고, 그 step 에서 전이가 있었으므로 게임도 같은 프레임에 봤다는 증거가 된다.
+        private static void GameKey(CommandParameters parameters, CommandResponse response)
+        {
+#if PROJECTM_INPUT_SYSTEM
+            var keyName = parameters.keyCode;
+            if (string.IsNullOrEmpty(keyName))
+            {
+                response.success = false;
+                response.error = new CommandError { message = "game_key requires keyCode (UnityEngine.InputSystem.Key name, e.g. Minus)." };
+                return;
+            }
+
+            if (!Enum.TryParse<UnityEngine.InputSystem.Key>(keyName, true, out var key))
+            {
+                response.success = false;
+                response.error = new CommandError { message = $"Unknown Input System Key '{keyName}'." };
+                return;
+            }
+
+            // Dynamic update 가 돌지 않으면 눌림 전이를 만들 수 없다. 편집 모드에서 조용히
+            // 성공을 돌려주면 호출자가 원인을 엉뚱한 데서 찾게 되므로 분명히 거절한다.
+            if (!Application.isPlaying)
+            {
+                response.success = false;
+                response.error = new CommandError { message = "game_key requires PlayMode - the game must be running for a Dynamic input update to carry the key-down transition." };
+                return;
+            }
+
+            if (UnityEngine.InputSystem.Keyboard.current == null)
+            {
+                response.success = false;
+                response.error = new CommandError { message = "Keyboard.current is null - no Input System keyboard device." };
+                return;
+            }
+
+            if (activeGameKey != null)
+            {
+                response.success = false;
+                response.error = new CommandError { message = $"another game_key sequence is still running (key={activeGameKey.key}, stage={activeGameKey.stage})." };
+                return;
+            }
+
+            activeGameKey = new GameKeyRequest
+            {
+                key = key,
+                response = response,
+                stage = 0,
+                deadline = EditorApplication.timeSinceStartup + 8.0
+            };
+
+            UnityEngine.InputSystem.InputSystem.onBeforeUpdate += GameKeyBeforeUpdate;
+            EditorApplication.update += GameKeyWatchdog;
+
+            // 응답은 시퀀스를 마친 쪽이 직접 쓴다.
+            response.deferred = true;
+#else
+            response.success = false;
+            response.error = new CommandError { message = "Input System package is not available (PROJECTM_INPUT_SYSTEM undefined)." };
+#endif
+        }
+
+#if PROJECTM_INPUT_SYSTEM
+        private sealed class GameKeyRequest
+        {
+            public UnityEngine.InputSystem.Key key;
+            public CommandResponse response;
+            public string requestPath;
+            public int stage;
+            public int dynamicTicks;
+            public int pressedFrames;
+            public double deadline;
+        }
+
+        private static GameKeyRequest activeGameKey;
+
+        // ProcessRequest 가 deferred 명령의 요청 파일 경로를 넘겨 준다.
+        // 시퀀스가 끝날 때 그 요청을 processed 로 옮기려면 경로가 필요하다.
+        private static void RegisterDeferredRequestPath(string requestPath)
+        {
+            if (activeGameKey != null)
+            {
+                activeGameKey.requestPath = requestPath;
+            }
+        }
+
+        private static void GameKeyBeforeUpdate()
+        {
+            var request = activeGameKey;
+            if (request == null)
+            {
+                return;
+            }
+
+            // 게임이 도는 update 에서만 손댄다. 에디터 update 에서 큐잉하면 그 update 가
+            // 이벤트를 소비해 게임은 끝내 전이를 못 본다 - 위 주석의 실패 2번이 그것이다.
+            if (UnityEngine.InputSystem.LowLevel.InputState.currentUpdateType !=
+                UnityEngine.InputSystem.LowLevel.InputUpdateType.Dynamic)
+            {
+                return;
+            }
+
+            var keyboard = UnityEngine.InputSystem.Keyboard.current;
+            if (keyboard == null)
+            {
+                FinishGameKey(request, "Keyboard.current became null mid-sequence.");
+                return;
+            }
+
+            request.dynamicTicks++;
+            if (request.dynamicTicks > 300)
+            {
+                FinishGameKey(request, $"timed out at stage {request.stage} after {request.dynamicTicks} dynamic updates.");
+                return;
+            }
+
+            var control = keyboard[request.key];
+
+            switch (request.stage)
+            {
+                case 0:
+                    UnityEngine.InputSystem.InputSystem.QueueStateEvent(keyboard,
+                        new UnityEngine.InputSystem.LowLevel.KeyboardState());
+                    request.stage = 1;
+                    break;
+
+                case 1:
+                    // 사용자가 그 키를 실제로 누르고 있으면 여기서 안 내려가고 타임아웃한다.
+                    // 남의 입력을 덮어쓰는 것보다 실패로 알리는 편이 낫다.
+                    if (!control.isPressed)
+                    {
+                        UnityEngine.InputSystem.InputSystem.QueueStateEvent(keyboard,
+                            new UnityEngine.InputSystem.LowLevel.KeyboardState(request.key));
+                        request.stage = 2;
+                    }
+                    break;
+
+                case 2:
+                    if (control.isPressed)
+                    {
+                        request.pressedFrames++;
+                        if (request.pressedFrames >= 2)
+                        {
+                            UnityEngine.InputSystem.InputSystem.QueueStateEvent(keyboard,
+                                new UnityEngine.InputSystem.LowLevel.KeyboardState());
+                            request.stage = 3;
+                        }
+                    }
+                    break;
+
+                case 3:
+                    if (!control.isPressed)
+                    {
+                        FinishGameKey(request, null);
+                    }
+                    break;
+            }
+        }
+
+        // PlayMode 가 꺼지거나 Dynamic update 가 멈추면 onBeforeUpdate 자체가 안 불린다.
+        // 그러면 시퀀스가 영원히 남아 다음 game_key 를 전부 거절하므로, 실시간 기준으로 끊는다.
+        private static void GameKeyWatchdog()
+        {
+            var request = activeGameKey;
+            if (request == null)
+            {
+                EditorApplication.update -= GameKeyWatchdog;
+                return;
+            }
+
+            if (!Application.isPlaying)
+            {
+                FinishGameKey(request, "PlayMode ended mid-sequence.");
+                return;
+            }
+
+            if (EditorApplication.timeSinceStartup > request.deadline)
+            {
+                FinishGameKey(request,
+                    $"watchdog timeout at stage {request.stage} (dynamicTicks={request.dynamicTicks}) - the game may be paused or not rendering.");
+            }
+        }
+
+        private static void FinishGameKey(GameKeyRequest request, string error)
+        {
+            UnityEngine.InputSystem.InputSystem.onBeforeUpdate -= GameKeyBeforeUpdate;
+            EditorApplication.update -= GameKeyWatchdog;
+            activeGameKey = null;
+
+            // 어떤 경로로 끝나든 키를 눌린 채로 남기지 않는다. 남기면 다음 호출의 stage 1 이
+            // 타임아웃할 뿐 아니라 사용자의 실제 입력까지 이상해진다.
+            var keyboard = UnityEngine.InputSystem.Keyboard.current;
+            if (keyboard != null)
+            {
+                UnityEngine.InputSystem.InputSystem.QueueStateEvent(keyboard,
+                    new UnityEngine.InputSystem.LowLevel.KeyboardState());
+            }
+
+            var response = request.response;
+            response.AddOutput("key", request.key.ToString());
+            response.AddOutput("pressedGameFrames", request.pressedFrames.ToString());
+            response.AddOutput("dynamicUpdates", request.dynamicTicks.ToString());
+            response.AddOutput("stageReached", request.stage.ToString());
+
+            if (error != null)
+            {
+                response.success = false;
+                response.error = new CommandError { message = error };
+            }
+            else if (request.pressedFrames < 2)
+            {
+                response.success = false;
+                response.error = new CommandError
+                {
+                    message = $"key was not held long enough (pressedGameFrames={request.pressedFrames})."
+                };
+            }
+            else
+            {
+                response.success = true;
+            }
+
+            WriteResponse(response);
+            if (!string.IsNullOrEmpty(request.requestPath))
+            {
+                TryArchiveRequest(request.requestPath);
+            }
+        }
+#else
+        // Input System 이 없으면 GameKey 가 즉시 거절하므로 deferred 가 켜질 일이 없다.
+        private static void RegisterDeferredRequestPath(string requestPath)
+        {
+        }
+#endif
+
         private static void ClickAt(CommandParameters parameters, CommandResponse response)
         {
             var pointX = ResolvePointX(parameters);
@@ -3389,6 +3665,11 @@ namespace ProjectMQaMcp.Editor
         public List<OutputEntry> outputs = new List<OutputEntry>();
         public CommandError error;
         public List<CommandStepResponse> steps;
+
+        // 여러 게임 프레임에 걸쳐야 끝나는 명령(game_key)이 켜는 표식이다.
+        // 켜져 있으면 ProcessRequest 가 응답을 쓰지 않고, 그 명령이 시퀀스를 마친 뒤 직접 쓴다.
+        // JSON 으로 나가면 안 되는 내부 상태라 직렬화에서 뺀다.
+        [NonSerialized] public bool deferred;
 
         public void AddOutput(string key, string value)
         {

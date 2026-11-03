@@ -29,9 +29,9 @@ var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__ge
   mod
 ));
 
-// D:/Project/UnityMCP/Server~/node_modules/ajv/dist/compile/codegen/code.js
+// node_modules/ajv/dist/compile/codegen/code.js
 var require_code = __commonJS({
-  "D:/Project/UnityMCP/Server~/node_modules/ajv/dist/compile/codegen/code.js"(exports) {
+  "node_modules/ajv/dist/compile/codegen/code.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.regexpCode = exports.getEsmExportName = exports.getProperty = exports.safeStringify = exports.stringify = exports.strConcat = exports.addCodeArg = exports.str = exports._ = exports.nil = exports._Code = exports.Name = exports.IDENTIFIER = exports._CodeOrName = void 0;
@@ -183,9 +183,9 @@ var require_code = __commonJS({
   }
 });
 
-// D:/Project/UnityMCP/Server~/node_modules/ajv/dist/compile/codegen/scope.js
+// node_modules/ajv/dist/compile/codegen/scope.js
 var require_scope = __commonJS({
-  "D:/Project/UnityMCP/Server~/node_modules/ajv/dist/compile/codegen/scope.js"(exports) {
+  "node_modules/ajv/dist/compile/codegen/scope.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.ValueScope = exports.ValueScopeName = exports.Scope = exports.varKinds = exports.UsedValueState = void 0;
@@ -328,9 +328,9 @@ var require_scope = __commonJS({
   }
 });
 
-// D:/Project/UnityMCP/Server~/node_modules/ajv/dist/compile/codegen/index.js
+// node_modules/ajv/dist/compile/codegen/index.js
 var require_codegen = __commonJS({
-  "D:/Project/UnityMCP/Server~/node_modules/ajv/dist/compile/codegen/index.js"(exports) {
+  "node_modules/ajv/dist/compile/codegen/index.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.or = exports.and = exports.not = exports.CodeGen = exports.operators = exports.varKinds = exports.ValueScopeName = exports.ValueScope = exports.Scope = exports.Name = exports.regexpCode = exports.stringify = exports.getProperty = exports.nil = exports.strConcat = exports.str = exports._ = void 0;
@@ -1048,9 +1048,9 @@ var require_codegen = __commonJS({
   }
 });
 
-// D:/Project/UnityMCP/Server~/node_modules/ajv/dist/compile/util.js
+// node_modules/ajv/dist/compile/util.js
 var require_util = __commonJS({
-  "D:/Project/UnityMCP/Server~/node_modules/ajv/dist/compile/util.js"(exports) {
+  "node_modules/ajv/dist/compile/util.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.checkStrictMode = exports.getErrorPath = exports.Type = exports.useFunc = exports.setEvaluated = exports.evaluatedPropsToName = exports.mergeEvaluated = exports.eachItem = exports.unescapeJsonPointer = exports.escapeJsonPointer = exports.escapeFragment = exports.unescapeFragment = exports.schemaRefOrVal = exports.schemaHasRulesButRef = exports.schemaHasRules = exports.checkUnknownRules = exports.alwaysValidSchema = exports.toHash = void 0;
@@ -1215,9 +1215,9 @@ var require_util = __commonJS({
   }
 });
 
-// D:/Project/UnityMCP/Server~/node_modules/ajv/dist/compile/names.js
+// node_modules/ajv/dist/compile/names.js
 var require_names = __commonJS({
-  "D:/Project/UnityMCP/Server~/node_modules/ajv/dist/compile/names.js"(exports) {
+  "node_modules/ajv/dist/compile/names.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     var codegen_1 = require_codegen();
@@ -1254,9 +1254,9 @@ var require_names = __commonJS({
   }
 });
 
-// D:/Project/UnityMCP/Server~/node_modules/ajv/dist/compile/errors.js
+// node_modules/ajv/dist/compile/errors.js
 var require_errors = __commonJS({
-  "D:/Project/UnityMCP/Server~/node_modules/ajv/dist/compile/errors.js"(exports) {
+  "node_modules/ajv/dist/compile/errors.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.extendErrors = exports.resetErrorsCount = exports.reportExtraError = exports.reportError = exports.keyword$DataError = exports.keywordError = void 0;
@@ -1376,9 +1376,9 @@ var require_errors = __commonJS({
   }
 });
 
-// D:/Project/UnityMCP/Server~/node_modules/ajv/dist/compile/validate/boolSchema.js
+// node_modules/ajv/dist/compile/validate/boolSchema.js
 var require_boolSchema = __commonJS({
-  "D:/Project/UnityMCP/Server~/node_modules/ajv/dist/compile/validate/boolSchema.js"(exports) {
+  "node_modules/ajv/dist/compile/validate/boolSchema.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.boolOrEmptySchema = exports.topBoolOrEmptySchema = void 0;
@@ -1427,9 +1427,9 @@ var require_boolSchema = __commonJS({
   }
 });
 
-// D:/Project/UnityMCP/Server~/node_modules/ajv/dist/compile/rules.js
+// node_modules/ajv/dist/compile/rules.js
 var require_rules = __commonJS({
-  "D:/Project/UnityMCP/Server~/node_modules/ajv/dist/compile/rules.js"(exports) {
+  "node_modules/ajv/dist/compile/rules.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.getRules = exports.isJSONType = void 0;
@@ -1458,9 +1458,9 @@ var require_rules = __commonJS({
   }
 });
 
-// D:/Project/UnityMCP/Server~/node_modules/ajv/dist/compile/validate/applicability.js
+// node_modules/ajv/dist/compile/validate/applicability.js
 var require_applicability = __commonJS({
-  "D:/Project/UnityMCP/Server~/node_modules/ajv/dist/compile/validate/applicability.js"(exports) {
+  "node_modules/ajv/dist/compile/validate/applicability.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.shouldUseRule = exports.shouldUseGroup = exports.schemaHasRulesForType = void 0;
@@ -1481,9 +1481,9 @@ var require_applicability = __commonJS({
   }
 });
 
-// D:/Project/UnityMCP/Server~/node_modules/ajv/dist/compile/validate/dataType.js
+// node_modules/ajv/dist/compile/validate/dataType.js
 var require_dataType = __commonJS({
-  "D:/Project/UnityMCP/Server~/node_modules/ajv/dist/compile/validate/dataType.js"(exports) {
+  "node_modules/ajv/dist/compile/validate/dataType.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.reportTypeError = exports.checkDataTypes = exports.checkDataType = exports.coerceAndCheckDataType = exports.getJSONTypes = exports.getSchemaTypes = exports.DataType = void 0;
@@ -1665,9 +1665,9 @@ var require_dataType = __commonJS({
   }
 });
 
-// D:/Project/UnityMCP/Server~/node_modules/ajv/dist/compile/validate/defaults.js
+// node_modules/ajv/dist/compile/validate/defaults.js
 var require_defaults = __commonJS({
-  "D:/Project/UnityMCP/Server~/node_modules/ajv/dist/compile/validate/defaults.js"(exports) {
+  "node_modules/ajv/dist/compile/validate/defaults.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.assignDefaults = void 0;
@@ -1702,9 +1702,9 @@ var require_defaults = __commonJS({
   }
 });
 
-// D:/Project/UnityMCP/Server~/node_modules/ajv/dist/vocabularies/code.js
+// node_modules/ajv/dist/vocabularies/code.js
 var require_code2 = __commonJS({
-  "D:/Project/UnityMCP/Server~/node_modules/ajv/dist/vocabularies/code.js"(exports) {
+  "node_modules/ajv/dist/vocabularies/code.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.validateUnion = exports.validateArray = exports.usePattern = exports.callValidateCode = exports.schemaProperties = exports.allSchemaProperties = exports.noPropertyInData = exports.propertyInData = exports.isOwnProperty = exports.hasPropFunc = exports.reportMissingProp = exports.checkMissingProp = exports.checkReportMissingProp = void 0;
@@ -1835,9 +1835,9 @@ var require_code2 = __commonJS({
   }
 });
 
-// D:/Project/UnityMCP/Server~/node_modules/ajv/dist/compile/validate/keyword.js
+// node_modules/ajv/dist/compile/validate/keyword.js
 var require_keyword = __commonJS({
-  "D:/Project/UnityMCP/Server~/node_modules/ajv/dist/compile/validate/keyword.js"(exports) {
+  "node_modules/ajv/dist/compile/validate/keyword.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.validateKeywordUsage = exports.validSchemaType = exports.funcKeywordCode = exports.macroKeywordCode = void 0;
@@ -1953,9 +1953,9 @@ var require_keyword = __commonJS({
   }
 });
 
-// D:/Project/UnityMCP/Server~/node_modules/ajv/dist/compile/validate/subschema.js
+// node_modules/ajv/dist/compile/validate/subschema.js
 var require_subschema = __commonJS({
-  "D:/Project/UnityMCP/Server~/node_modules/ajv/dist/compile/validate/subschema.js"(exports) {
+  "node_modules/ajv/dist/compile/validate/subschema.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.extendSubschemaMode = exports.extendSubschemaData = exports.getSubschema = void 0;
@@ -2036,9 +2036,9 @@ var require_subschema = __commonJS({
   }
 });
 
-// D:/Project/UnityMCP/Server~/node_modules/fast-deep-equal/index.js
+// node_modules/fast-deep-equal/index.js
 var require_fast_deep_equal = __commonJS({
-  "D:/Project/UnityMCP/Server~/node_modules/fast-deep-equal/index.js"(exports, module) {
+  "node_modules/fast-deep-equal/index.js"(exports, module) {
     "use strict";
     module.exports = function equal(a, b) {
       if (a === b) return true;
@@ -2071,9 +2071,9 @@ var require_fast_deep_equal = __commonJS({
   }
 });
 
-// D:/Project/UnityMCP/Server~/node_modules/json-schema-traverse/index.js
+// node_modules/json-schema-traverse/index.js
 var require_json_schema_traverse = __commonJS({
-  "D:/Project/UnityMCP/Server~/node_modules/json-schema-traverse/index.js"(exports, module) {
+  "node_modules/json-schema-traverse/index.js"(exports, module) {
     "use strict";
     var traverse = module.exports = function(schema, opts, cb) {
       if (typeof opts == "function") {
@@ -2159,9 +2159,9 @@ var require_json_schema_traverse = __commonJS({
   }
 });
 
-// D:/Project/UnityMCP/Server~/node_modules/ajv/dist/compile/resolve.js
+// node_modules/ajv/dist/compile/resolve.js
 var require_resolve = __commonJS({
-  "D:/Project/UnityMCP/Server~/node_modules/ajv/dist/compile/resolve.js"(exports) {
+  "node_modules/ajv/dist/compile/resolve.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.getSchemaRefs = exports.resolveUrl = exports.normalizeId = exports._getFullPath = exports.getFullPath = exports.inlineRef = void 0;
@@ -2315,9 +2315,9 @@ var require_resolve = __commonJS({
   }
 });
 
-// D:/Project/UnityMCP/Server~/node_modules/ajv/dist/compile/validate/index.js
+// node_modules/ajv/dist/compile/validate/index.js
 var require_validate = __commonJS({
-  "D:/Project/UnityMCP/Server~/node_modules/ajv/dist/compile/validate/index.js"(exports) {
+  "node_modules/ajv/dist/compile/validate/index.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.getData = exports.KeywordCxt = exports.validateFunctionCode = void 0;
@@ -2823,9 +2823,9 @@ var require_validate = __commonJS({
   }
 });
 
-// D:/Project/UnityMCP/Server~/node_modules/ajv/dist/runtime/validation_error.js
+// node_modules/ajv/dist/runtime/validation_error.js
 var require_validation_error = __commonJS({
-  "D:/Project/UnityMCP/Server~/node_modules/ajv/dist/runtime/validation_error.js"(exports) {
+  "node_modules/ajv/dist/runtime/validation_error.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     var ValidationError = class extends Error {
@@ -2839,9 +2839,9 @@ var require_validation_error = __commonJS({
   }
 });
 
-// D:/Project/UnityMCP/Server~/node_modules/ajv/dist/compile/ref_error.js
+// node_modules/ajv/dist/compile/ref_error.js
 var require_ref_error = __commonJS({
-  "D:/Project/UnityMCP/Server~/node_modules/ajv/dist/compile/ref_error.js"(exports) {
+  "node_modules/ajv/dist/compile/ref_error.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     var resolve_1 = require_resolve();
@@ -2856,9 +2856,9 @@ var require_ref_error = __commonJS({
   }
 });
 
-// D:/Project/UnityMCP/Server~/node_modules/ajv/dist/compile/index.js
+// node_modules/ajv/dist/compile/index.js
 var require_compile = __commonJS({
-  "D:/Project/UnityMCP/Server~/node_modules/ajv/dist/compile/index.js"(exports) {
+  "node_modules/ajv/dist/compile/index.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.resolveSchema = exports.getCompilingSchema = exports.resolveRef = exports.compileSchema = exports.SchemaEnv = void 0;
@@ -3080,9 +3080,9 @@ var require_compile = __commonJS({
   }
 });
 
-// D:/Project/UnityMCP/Server~/node_modules/ajv/dist/refs/data.json
+// node_modules/ajv/dist/refs/data.json
 var require_data = __commonJS({
-  "D:/Project/UnityMCP/Server~/node_modules/ajv/dist/refs/data.json"(exports, module) {
+  "node_modules/ajv/dist/refs/data.json"(exports, module) {
     module.exports = {
       $id: "https://raw.githubusercontent.com/ajv-validator/ajv/master/lib/refs/data.json#",
       description: "Meta-schema for $data reference (JSON AnySchema extension proposal)",
@@ -3099,9 +3099,9 @@ var require_data = __commonJS({
   }
 });
 
-// D:/Project/UnityMCP/Server~/node_modules/fast-uri/lib/utils.js
+// node_modules/fast-uri/lib/utils.js
 var require_utils = __commonJS({
-  "D:/Project/UnityMCP/Server~/node_modules/fast-uri/lib/utils.js"(exports, module) {
+  "node_modules/fast-uri/lib/utils.js"(exports, module) {
     "use strict";
     var isUUID = RegExp.prototype.test.bind(/^[\da-f]{8}-[\da-f]{4}-[\da-f]{4}-[\da-f]{4}-[\da-f]{12}$/iu);
     var isIPv4 = RegExp.prototype.test.bind(/^(?:(?:25[0-5]|2[0-4]\d|1\d{2}|[1-9]\d|\d)\.){3}(?:25[0-5]|2[0-4]\d|1\d{2}|[1-9]\d|\d)$/u);
@@ -3412,9 +3412,9 @@ var require_utils = __commonJS({
   }
 });
 
-// D:/Project/UnityMCP/Server~/node_modules/fast-uri/lib/schemes.js
+// node_modules/fast-uri/lib/schemes.js
 var require_schemes = __commonJS({
-  "D:/Project/UnityMCP/Server~/node_modules/fast-uri/lib/schemes.js"(exports, module) {
+  "node_modules/fast-uri/lib/schemes.js"(exports, module) {
     "use strict";
     var { isUUID } = require_utils();
     var URN_REG = /([\da-z][\d\-a-z]{0,31}):((?:[\w!$'()*+,\-.:;=@]|%[\da-f]{2})+)/iu;
@@ -3622,9 +3622,9 @@ var require_schemes = __commonJS({
   }
 });
 
-// D:/Project/UnityMCP/Server~/node_modules/fast-uri/index.js
+// node_modules/fast-uri/index.js
 var require_fast_uri = __commonJS({
-  "D:/Project/UnityMCP/Server~/node_modules/fast-uri/index.js"(exports, module) {
+  "node_modules/fast-uri/index.js"(exports, module) {
     "use strict";
     var { normalizeIPv6, removeDotSegments, recomposeAuthority, normalizePercentEncoding, normalizePathEncoding, escapePreservingEscapes, reescapeHostDelimiters, isIPv4, nonSimpleDomain } = require_utils();
     var { SCHEMES, getSchemeHandler } = require_schemes();
@@ -3908,9 +3908,9 @@ var require_fast_uri = __commonJS({
   }
 });
 
-// D:/Project/UnityMCP/Server~/node_modules/ajv/dist/runtime/uri.js
+// node_modules/ajv/dist/runtime/uri.js
 var require_uri = __commonJS({
-  "D:/Project/UnityMCP/Server~/node_modules/ajv/dist/runtime/uri.js"(exports) {
+  "node_modules/ajv/dist/runtime/uri.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     var uri = require_fast_uri();
@@ -3919,9 +3919,9 @@ var require_uri = __commonJS({
   }
 });
 
-// D:/Project/UnityMCP/Server~/node_modules/ajv/dist/core.js
+// node_modules/ajv/dist/core.js
 var require_core = __commonJS({
-  "D:/Project/UnityMCP/Server~/node_modules/ajv/dist/core.js"(exports) {
+  "node_modules/ajv/dist/core.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.CodeGen = exports.Name = exports.nil = exports.stringify = exports.str = exports._ = exports.KeywordCxt = void 0;
@@ -4530,9 +4530,9 @@ var require_core = __commonJS({
   }
 });
 
-// D:/Project/UnityMCP/Server~/node_modules/ajv/dist/vocabularies/core/id.js
+// node_modules/ajv/dist/vocabularies/core/id.js
 var require_id = __commonJS({
-  "D:/Project/UnityMCP/Server~/node_modules/ajv/dist/vocabularies/core/id.js"(exports) {
+  "node_modules/ajv/dist/vocabularies/core/id.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     var def = {
@@ -4545,9 +4545,9 @@ var require_id = __commonJS({
   }
 });
 
-// D:/Project/UnityMCP/Server~/node_modules/ajv/dist/vocabularies/core/ref.js
+// node_modules/ajv/dist/vocabularies/core/ref.js
 var require_ref = __commonJS({
-  "D:/Project/UnityMCP/Server~/node_modules/ajv/dist/vocabularies/core/ref.js"(exports) {
+  "node_modules/ajv/dist/vocabularies/core/ref.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.callRef = exports.getValidate = void 0;
@@ -4667,9 +4667,9 @@ var require_ref = __commonJS({
   }
 });
 
-// D:/Project/UnityMCP/Server~/node_modules/ajv/dist/vocabularies/core/index.js
+// node_modules/ajv/dist/vocabularies/core/index.js
 var require_core2 = __commonJS({
-  "D:/Project/UnityMCP/Server~/node_modules/ajv/dist/vocabularies/core/index.js"(exports) {
+  "node_modules/ajv/dist/vocabularies/core/index.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     var id_1 = require_id();
@@ -4688,9 +4688,9 @@ var require_core2 = __commonJS({
   }
 });
 
-// D:/Project/UnityMCP/Server~/node_modules/ajv/dist/vocabularies/validation/limitNumber.js
+// node_modules/ajv/dist/vocabularies/validation/limitNumber.js
 var require_limitNumber = __commonJS({
-  "D:/Project/UnityMCP/Server~/node_modules/ajv/dist/vocabularies/validation/limitNumber.js"(exports) {
+  "node_modules/ajv/dist/vocabularies/validation/limitNumber.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     var codegen_1 = require_codegen();
@@ -4720,9 +4720,9 @@ var require_limitNumber = __commonJS({
   }
 });
 
-// D:/Project/UnityMCP/Server~/node_modules/ajv/dist/vocabularies/validation/multipleOf.js
+// node_modules/ajv/dist/vocabularies/validation/multipleOf.js
 var require_multipleOf = __commonJS({
-  "D:/Project/UnityMCP/Server~/node_modules/ajv/dist/vocabularies/validation/multipleOf.js"(exports) {
+  "node_modules/ajv/dist/vocabularies/validation/multipleOf.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     var codegen_1 = require_codegen();
@@ -4748,9 +4748,9 @@ var require_multipleOf = __commonJS({
   }
 });
 
-// D:/Project/UnityMCP/Server~/node_modules/ajv/dist/runtime/ucs2length.js
+// node_modules/ajv/dist/runtime/ucs2length.js
 var require_ucs2length = __commonJS({
-  "D:/Project/UnityMCP/Server~/node_modules/ajv/dist/runtime/ucs2length.js"(exports) {
+  "node_modules/ajv/dist/runtime/ucs2length.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     function ucs2length(str) {
@@ -4774,9 +4774,9 @@ var require_ucs2length = __commonJS({
   }
 });
 
-// D:/Project/UnityMCP/Server~/node_modules/ajv/dist/vocabularies/validation/limitLength.js
+// node_modules/ajv/dist/vocabularies/validation/limitLength.js
 var require_limitLength = __commonJS({
-  "D:/Project/UnityMCP/Server~/node_modules/ajv/dist/vocabularies/validation/limitLength.js"(exports) {
+  "node_modules/ajv/dist/vocabularies/validation/limitLength.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     var codegen_1 = require_codegen();
@@ -4806,9 +4806,9 @@ var require_limitLength = __commonJS({
   }
 });
 
-// D:/Project/UnityMCP/Server~/node_modules/ajv/dist/vocabularies/validation/pattern.js
+// node_modules/ajv/dist/vocabularies/validation/pattern.js
 var require_pattern = __commonJS({
-  "D:/Project/UnityMCP/Server~/node_modules/ajv/dist/vocabularies/validation/pattern.js"(exports) {
+  "node_modules/ajv/dist/vocabularies/validation/pattern.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     var code_1 = require_code2();
@@ -4843,9 +4843,9 @@ var require_pattern = __commonJS({
   }
 });
 
-// D:/Project/UnityMCP/Server~/node_modules/ajv/dist/vocabularies/validation/limitProperties.js
+// node_modules/ajv/dist/vocabularies/validation/limitProperties.js
 var require_limitProperties = __commonJS({
-  "D:/Project/UnityMCP/Server~/node_modules/ajv/dist/vocabularies/validation/limitProperties.js"(exports) {
+  "node_modules/ajv/dist/vocabularies/validation/limitProperties.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     var codegen_1 = require_codegen();
@@ -4872,9 +4872,9 @@ var require_limitProperties = __commonJS({
   }
 });
 
-// D:/Project/UnityMCP/Server~/node_modules/ajv/dist/vocabularies/validation/required.js
+// node_modules/ajv/dist/vocabularies/validation/required.js
 var require_required = __commonJS({
-  "D:/Project/UnityMCP/Server~/node_modules/ajv/dist/vocabularies/validation/required.js"(exports) {
+  "node_modules/ajv/dist/vocabularies/validation/required.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     var code_1 = require_code2();
@@ -4954,9 +4954,9 @@ var require_required = __commonJS({
   }
 });
 
-// D:/Project/UnityMCP/Server~/node_modules/ajv/dist/vocabularies/validation/limitItems.js
+// node_modules/ajv/dist/vocabularies/validation/limitItems.js
 var require_limitItems = __commonJS({
-  "D:/Project/UnityMCP/Server~/node_modules/ajv/dist/vocabularies/validation/limitItems.js"(exports) {
+  "node_modules/ajv/dist/vocabularies/validation/limitItems.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     var codegen_1 = require_codegen();
@@ -4983,9 +4983,9 @@ var require_limitItems = __commonJS({
   }
 });
 
-// D:/Project/UnityMCP/Server~/node_modules/ajv/dist/runtime/equal.js
+// node_modules/ajv/dist/runtime/equal.js
 var require_equal = __commonJS({
-  "D:/Project/UnityMCP/Server~/node_modules/ajv/dist/runtime/equal.js"(exports) {
+  "node_modules/ajv/dist/runtime/equal.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     var equal = require_fast_deep_equal();
@@ -4994,9 +4994,9 @@ var require_equal = __commonJS({
   }
 });
 
-// D:/Project/UnityMCP/Server~/node_modules/ajv/dist/vocabularies/validation/uniqueItems.js
+// node_modules/ajv/dist/vocabularies/validation/uniqueItems.js
 var require_uniqueItems = __commonJS({
-  "D:/Project/UnityMCP/Server~/node_modules/ajv/dist/vocabularies/validation/uniqueItems.js"(exports) {
+  "node_modules/ajv/dist/vocabularies/validation/uniqueItems.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     var dataType_1 = require_dataType();
@@ -5061,9 +5061,9 @@ var require_uniqueItems = __commonJS({
   }
 });
 
-// D:/Project/UnityMCP/Server~/node_modules/ajv/dist/vocabularies/validation/const.js
+// node_modules/ajv/dist/vocabularies/validation/const.js
 var require_const = __commonJS({
-  "D:/Project/UnityMCP/Server~/node_modules/ajv/dist/vocabularies/validation/const.js"(exports) {
+  "node_modules/ajv/dist/vocabularies/validation/const.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     var codegen_1 = require_codegen();
@@ -5090,9 +5090,9 @@ var require_const = __commonJS({
   }
 });
 
-// D:/Project/UnityMCP/Server~/node_modules/ajv/dist/vocabularies/validation/enum.js
+// node_modules/ajv/dist/vocabularies/validation/enum.js
 var require_enum = __commonJS({
-  "D:/Project/UnityMCP/Server~/node_modules/ajv/dist/vocabularies/validation/enum.js"(exports) {
+  "node_modules/ajv/dist/vocabularies/validation/enum.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     var codegen_1 = require_codegen();
@@ -5139,9 +5139,9 @@ var require_enum = __commonJS({
   }
 });
 
-// D:/Project/UnityMCP/Server~/node_modules/ajv/dist/vocabularies/validation/index.js
+// node_modules/ajv/dist/vocabularies/validation/index.js
 var require_validation = __commonJS({
-  "D:/Project/UnityMCP/Server~/node_modules/ajv/dist/vocabularies/validation/index.js"(exports) {
+  "node_modules/ajv/dist/vocabularies/validation/index.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     var limitNumber_1 = require_limitNumber();
@@ -5177,9 +5177,9 @@ var require_validation = __commonJS({
   }
 });
 
-// D:/Project/UnityMCP/Server~/node_modules/ajv/dist/vocabularies/applicator/additionalItems.js
+// node_modules/ajv/dist/vocabularies/applicator/additionalItems.js
 var require_additionalItems = __commonJS({
-  "D:/Project/UnityMCP/Server~/node_modules/ajv/dist/vocabularies/applicator/additionalItems.js"(exports) {
+  "node_modules/ajv/dist/vocabularies/applicator/additionalItems.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.validateAdditionalItems = void 0;
@@ -5230,9 +5230,9 @@ var require_additionalItems = __commonJS({
   }
 });
 
-// D:/Project/UnityMCP/Server~/node_modules/ajv/dist/vocabularies/applicator/items.js
+// node_modules/ajv/dist/vocabularies/applicator/items.js
 var require_items = __commonJS({
-  "D:/Project/UnityMCP/Server~/node_modules/ajv/dist/vocabularies/applicator/items.js"(exports) {
+  "node_modules/ajv/dist/vocabularies/applicator/items.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.validateTuple = void 0;
@@ -5287,9 +5287,9 @@ var require_items = __commonJS({
   }
 });
 
-// D:/Project/UnityMCP/Server~/node_modules/ajv/dist/vocabularies/applicator/prefixItems.js
+// node_modules/ajv/dist/vocabularies/applicator/prefixItems.js
 var require_prefixItems = __commonJS({
-  "D:/Project/UnityMCP/Server~/node_modules/ajv/dist/vocabularies/applicator/prefixItems.js"(exports) {
+  "node_modules/ajv/dist/vocabularies/applicator/prefixItems.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     var items_1 = require_items();
@@ -5304,9 +5304,9 @@ var require_prefixItems = __commonJS({
   }
 });
 
-// D:/Project/UnityMCP/Server~/node_modules/ajv/dist/vocabularies/applicator/items2020.js
+// node_modules/ajv/dist/vocabularies/applicator/items2020.js
 var require_items2020 = __commonJS({
-  "D:/Project/UnityMCP/Server~/node_modules/ajv/dist/vocabularies/applicator/items2020.js"(exports) {
+  "node_modules/ajv/dist/vocabularies/applicator/items2020.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     var codegen_1 = require_codegen();
@@ -5339,9 +5339,9 @@ var require_items2020 = __commonJS({
   }
 });
 
-// D:/Project/UnityMCP/Server~/node_modules/ajv/dist/vocabularies/applicator/contains.js
+// node_modules/ajv/dist/vocabularies/applicator/contains.js
 var require_contains = __commonJS({
-  "D:/Project/UnityMCP/Server~/node_modules/ajv/dist/vocabularies/applicator/contains.js"(exports) {
+  "node_modules/ajv/dist/vocabularies/applicator/contains.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     var codegen_1 = require_codegen();
@@ -5433,9 +5433,9 @@ var require_contains = __commonJS({
   }
 });
 
-// D:/Project/UnityMCP/Server~/node_modules/ajv/dist/vocabularies/applicator/dependencies.js
+// node_modules/ajv/dist/vocabularies/applicator/dependencies.js
 var require_dependencies = __commonJS({
-  "D:/Project/UnityMCP/Server~/node_modules/ajv/dist/vocabularies/applicator/dependencies.js"(exports) {
+  "node_modules/ajv/dist/vocabularies/applicator/dependencies.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.validateSchemaDeps = exports.validatePropertyDeps = exports.error = void 0;
@@ -5527,9 +5527,9 @@ var require_dependencies = __commonJS({
   }
 });
 
-// D:/Project/UnityMCP/Server~/node_modules/ajv/dist/vocabularies/applicator/propertyNames.js
+// node_modules/ajv/dist/vocabularies/applicator/propertyNames.js
 var require_propertyNames = __commonJS({
-  "D:/Project/UnityMCP/Server~/node_modules/ajv/dist/vocabularies/applicator/propertyNames.js"(exports) {
+  "node_modules/ajv/dist/vocabularies/applicator/propertyNames.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     var codegen_1 = require_codegen();
@@ -5570,9 +5570,9 @@ var require_propertyNames = __commonJS({
   }
 });
 
-// D:/Project/UnityMCP/Server~/node_modules/ajv/dist/vocabularies/applicator/additionalProperties.js
+// node_modules/ajv/dist/vocabularies/applicator/additionalProperties.js
 var require_additionalProperties = __commonJS({
-  "D:/Project/UnityMCP/Server~/node_modules/ajv/dist/vocabularies/applicator/additionalProperties.js"(exports) {
+  "node_modules/ajv/dist/vocabularies/applicator/additionalProperties.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     var code_1 = require_code2();
@@ -5676,9 +5676,9 @@ var require_additionalProperties = __commonJS({
   }
 });
 
-// D:/Project/UnityMCP/Server~/node_modules/ajv/dist/vocabularies/applicator/properties.js
+// node_modules/ajv/dist/vocabularies/applicator/properties.js
 var require_properties = __commonJS({
-  "D:/Project/UnityMCP/Server~/node_modules/ajv/dist/vocabularies/applicator/properties.js"(exports) {
+  "node_modules/ajv/dist/vocabularies/applicator/properties.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     var validate_1 = require_validate();
@@ -5734,9 +5734,9 @@ var require_properties = __commonJS({
   }
 });
 
-// D:/Project/UnityMCP/Server~/node_modules/ajv/dist/vocabularies/applicator/patternProperties.js
+// node_modules/ajv/dist/vocabularies/applicator/patternProperties.js
 var require_patternProperties = __commonJS({
-  "D:/Project/UnityMCP/Server~/node_modules/ajv/dist/vocabularies/applicator/patternProperties.js"(exports) {
+  "node_modules/ajv/dist/vocabularies/applicator/patternProperties.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     var code_1 = require_code2();
@@ -5808,9 +5808,9 @@ var require_patternProperties = __commonJS({
   }
 });
 
-// D:/Project/UnityMCP/Server~/node_modules/ajv/dist/vocabularies/applicator/not.js
+// node_modules/ajv/dist/vocabularies/applicator/not.js
 var require_not = __commonJS({
-  "D:/Project/UnityMCP/Server~/node_modules/ajv/dist/vocabularies/applicator/not.js"(exports) {
+  "node_modules/ajv/dist/vocabularies/applicator/not.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     var util_1 = require_util();
@@ -5839,9 +5839,9 @@ var require_not = __commonJS({
   }
 });
 
-// D:/Project/UnityMCP/Server~/node_modules/ajv/dist/vocabularies/applicator/anyOf.js
+// node_modules/ajv/dist/vocabularies/applicator/anyOf.js
 var require_anyOf = __commonJS({
-  "D:/Project/UnityMCP/Server~/node_modules/ajv/dist/vocabularies/applicator/anyOf.js"(exports) {
+  "node_modules/ajv/dist/vocabularies/applicator/anyOf.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     var code_1 = require_code2();
@@ -5856,9 +5856,9 @@ var require_anyOf = __commonJS({
   }
 });
 
-// D:/Project/UnityMCP/Server~/node_modules/ajv/dist/vocabularies/applicator/oneOf.js
+// node_modules/ajv/dist/vocabularies/applicator/oneOf.js
 var require_oneOf = __commonJS({
-  "D:/Project/UnityMCP/Server~/node_modules/ajv/dist/vocabularies/applicator/oneOf.js"(exports) {
+  "node_modules/ajv/dist/vocabularies/applicator/oneOf.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     var codegen_1 = require_codegen();
@@ -5914,9 +5914,9 @@ var require_oneOf = __commonJS({
   }
 });
 
-// D:/Project/UnityMCP/Server~/node_modules/ajv/dist/vocabularies/applicator/allOf.js
+// node_modules/ajv/dist/vocabularies/applicator/allOf.js
 var require_allOf = __commonJS({
-  "D:/Project/UnityMCP/Server~/node_modules/ajv/dist/vocabularies/applicator/allOf.js"(exports) {
+  "node_modules/ajv/dist/vocabularies/applicator/allOf.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     var util_1 = require_util();
@@ -5941,9 +5941,9 @@ var require_allOf = __commonJS({
   }
 });
 
-// D:/Project/UnityMCP/Server~/node_modules/ajv/dist/vocabularies/applicator/if.js
+// node_modules/ajv/dist/vocabularies/applicator/if.js
 var require_if = __commonJS({
-  "D:/Project/UnityMCP/Server~/node_modules/ajv/dist/vocabularies/applicator/if.js"(exports) {
+  "node_modules/ajv/dist/vocabularies/applicator/if.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     var codegen_1 = require_codegen();
@@ -6010,9 +6010,9 @@ var require_if = __commonJS({
   }
 });
 
-// D:/Project/UnityMCP/Server~/node_modules/ajv/dist/vocabularies/applicator/thenElse.js
+// node_modules/ajv/dist/vocabularies/applicator/thenElse.js
 var require_thenElse = __commonJS({
-  "D:/Project/UnityMCP/Server~/node_modules/ajv/dist/vocabularies/applicator/thenElse.js"(exports) {
+  "node_modules/ajv/dist/vocabularies/applicator/thenElse.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     var util_1 = require_util();
@@ -6028,9 +6028,9 @@ var require_thenElse = __commonJS({
   }
 });
 
-// D:/Project/UnityMCP/Server~/node_modules/ajv/dist/vocabularies/applicator/index.js
+// node_modules/ajv/dist/vocabularies/applicator/index.js
 var require_applicator = __commonJS({
-  "D:/Project/UnityMCP/Server~/node_modules/ajv/dist/vocabularies/applicator/index.js"(exports) {
+  "node_modules/ajv/dist/vocabularies/applicator/index.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     var additionalItems_1 = require_additionalItems();
@@ -6076,9 +6076,9 @@ var require_applicator = __commonJS({
   }
 });
 
-// D:/Project/UnityMCP/Server~/node_modules/ajv/dist/vocabularies/format/format.js
+// node_modules/ajv/dist/vocabularies/format/format.js
 var require_format = __commonJS({
-  "D:/Project/UnityMCP/Server~/node_modules/ajv/dist/vocabularies/format/format.js"(exports) {
+  "node_modules/ajv/dist/vocabularies/format/format.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     var codegen_1 = require_codegen();
@@ -6166,9 +6166,9 @@ var require_format = __commonJS({
   }
 });
 
-// D:/Project/UnityMCP/Server~/node_modules/ajv/dist/vocabularies/format/index.js
+// node_modules/ajv/dist/vocabularies/format/index.js
 var require_format2 = __commonJS({
-  "D:/Project/UnityMCP/Server~/node_modules/ajv/dist/vocabularies/format/index.js"(exports) {
+  "node_modules/ajv/dist/vocabularies/format/index.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     var format_1 = require_format();
@@ -6177,9 +6177,9 @@ var require_format2 = __commonJS({
   }
 });
 
-// D:/Project/UnityMCP/Server~/node_modules/ajv/dist/vocabularies/metadata.js
+// node_modules/ajv/dist/vocabularies/metadata.js
 var require_metadata = __commonJS({
-  "D:/Project/UnityMCP/Server~/node_modules/ajv/dist/vocabularies/metadata.js"(exports) {
+  "node_modules/ajv/dist/vocabularies/metadata.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.contentVocabulary = exports.metadataVocabulary = void 0;
@@ -6200,9 +6200,9 @@ var require_metadata = __commonJS({
   }
 });
 
-// D:/Project/UnityMCP/Server~/node_modules/ajv/dist/vocabularies/draft7.js
+// node_modules/ajv/dist/vocabularies/draft7.js
 var require_draft7 = __commonJS({
-  "D:/Project/UnityMCP/Server~/node_modules/ajv/dist/vocabularies/draft7.js"(exports) {
+  "node_modules/ajv/dist/vocabularies/draft7.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     var core_1 = require_core2();
@@ -6222,9 +6222,9 @@ var require_draft7 = __commonJS({
   }
 });
 
-// D:/Project/UnityMCP/Server~/node_modules/ajv/dist/vocabularies/discriminator/types.js
+// node_modules/ajv/dist/vocabularies/discriminator/types.js
 var require_types = __commonJS({
-  "D:/Project/UnityMCP/Server~/node_modules/ajv/dist/vocabularies/discriminator/types.js"(exports) {
+  "node_modules/ajv/dist/vocabularies/discriminator/types.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.DiscrError = void 0;
@@ -6236,9 +6236,9 @@ var require_types = __commonJS({
   }
 });
 
-// D:/Project/UnityMCP/Server~/node_modules/ajv/dist/vocabularies/discriminator/index.js
+// node_modules/ajv/dist/vocabularies/discriminator/index.js
 var require_discriminator = __commonJS({
-  "D:/Project/UnityMCP/Server~/node_modules/ajv/dist/vocabularies/discriminator/index.js"(exports) {
+  "node_modules/ajv/dist/vocabularies/discriminator/index.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     var codegen_1 = require_codegen();
@@ -6341,9 +6341,9 @@ var require_discriminator = __commonJS({
   }
 });
 
-// D:/Project/UnityMCP/Server~/node_modules/ajv/dist/refs/json-schema-draft-07.json
+// node_modules/ajv/dist/refs/json-schema-draft-07.json
 var require_json_schema_draft_07 = __commonJS({
-  "D:/Project/UnityMCP/Server~/node_modules/ajv/dist/refs/json-schema-draft-07.json"(exports, module) {
+  "node_modules/ajv/dist/refs/json-schema-draft-07.json"(exports, module) {
     module.exports = {
       $schema: "http://json-schema.org/draft-07/schema#",
       $id: "http://json-schema.org/draft-07/schema#",
@@ -6498,9 +6498,9 @@ var require_json_schema_draft_07 = __commonJS({
   }
 });
 
-// D:/Project/UnityMCP/Server~/node_modules/ajv/dist/ajv.js
+// node_modules/ajv/dist/ajv.js
 var require_ajv = __commonJS({
-  "D:/Project/UnityMCP/Server~/node_modules/ajv/dist/ajv.js"(exports, module) {
+  "node_modules/ajv/dist/ajv.js"(exports, module) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.MissingRefError = exports.ValidationError = exports.CodeGen = exports.Name = exports.nil = exports.stringify = exports.str = exports._ = exports.KeywordCxt = exports.Ajv = void 0;
@@ -6568,9 +6568,9 @@ var require_ajv = __commonJS({
   }
 });
 
-// D:/Project/UnityMCP/Server~/node_modules/ajv-formats/dist/formats.js
+// node_modules/ajv-formats/dist/formats.js
 var require_formats = __commonJS({
-  "D:/Project/UnityMCP/Server~/node_modules/ajv-formats/dist/formats.js"(exports) {
+  "node_modules/ajv-formats/dist/formats.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.formatNames = exports.fastFormats = exports.fullFormats = void 0;
@@ -6771,9 +6771,9 @@ var require_formats = __commonJS({
   }
 });
 
-// D:/Project/UnityMCP/Server~/node_modules/ajv-formats/dist/limit.js
+// node_modules/ajv-formats/dist/limit.js
 var require_limit = __commonJS({
-  "D:/Project/UnityMCP/Server~/node_modules/ajv-formats/dist/limit.js"(exports) {
+  "node_modules/ajv-formats/dist/limit.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.formatLimitDefinition = void 0;
@@ -6843,9 +6843,9 @@ var require_limit = __commonJS({
   }
 });
 
-// D:/Project/UnityMCP/Server~/node_modules/ajv-formats/dist/index.js
+// node_modules/ajv-formats/dist/index.js
 var require_dist = __commonJS({
-  "D:/Project/UnityMCP/Server~/node_modules/ajv-formats/dist/index.js"(exports, module) {
+  "node_modules/ajv-formats/dist/index.js"(exports, module) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     var formats_1 = require_formats();
@@ -6885,7 +6885,7 @@ var require_dist = __commonJS({
   }
 });
 
-// D:/Project/UnityMCP/Server~/node_modules/zod/v3/external.js
+// node_modules/zod/v3/external.js
 var external_exports = {};
 __export(external_exports, {
   BRAND: () => BRAND,
@@ -6997,7 +6997,7 @@ __export(external_exports, {
   void: () => voidType
 });
 
-// D:/Project/UnityMCP/Server~/node_modules/zod/v3/helpers/util.js
+// node_modules/zod/v3/helpers/util.js
 var util;
 (function(util2) {
   util2.assertEqual = (_) => {
@@ -7131,7 +7131,7 @@ var getParsedType = (data) => {
   }
 };
 
-// D:/Project/UnityMCP/Server~/node_modules/zod/v3/ZodError.js
+// node_modules/zod/v3/ZodError.js
 var ZodIssueCode = util.arrayToEnum([
   "invalid_type",
   "invalid_literal",
@@ -7249,7 +7249,7 @@ ZodError.create = (issues) => {
   return error2;
 };
 
-// D:/Project/UnityMCP/Server~/node_modules/zod/v3/locales/en.js
+// node_modules/zod/v3/locales/en.js
 var errorMap = (issue2, _ctx) => {
   let message;
   switch (issue2.code) {
@@ -7352,7 +7352,7 @@ var errorMap = (issue2, _ctx) => {
 };
 var en_default = errorMap;
 
-// D:/Project/UnityMCP/Server~/node_modules/zod/v3/errors.js
+// node_modules/zod/v3/errors.js
 var overrideErrorMap = en_default;
 function setErrorMap(map) {
   overrideErrorMap = map;
@@ -7361,7 +7361,7 @@ function getErrorMap() {
   return overrideErrorMap;
 }
 
-// D:/Project/UnityMCP/Server~/node_modules/zod/v3/helpers/parseUtil.js
+// node_modules/zod/v3/helpers/parseUtil.js
 var makeIssue = (params) => {
   const { data, path, errorMaps, issueData } = params;
   const fullPath = [...path, ...issueData.path || []];
@@ -7471,14 +7471,14 @@ var isDirty = (x) => x.status === "dirty";
 var isValid = (x) => x.status === "valid";
 var isAsync = (x) => typeof Promise !== "undefined" && x instanceof Promise;
 
-// D:/Project/UnityMCP/Server~/node_modules/zod/v3/helpers/errorUtil.js
+// node_modules/zod/v3/helpers/errorUtil.js
 var errorUtil;
 (function(errorUtil2) {
   errorUtil2.errToObj = (message) => typeof message === "string" ? { message } : message || {};
   errorUtil2.toString = (message) => typeof message === "string" ? message : message?.message;
 })(errorUtil || (errorUtil = {}));
 
-// D:/Project/UnityMCP/Server~/node_modules/zod/v3/types.js
+// node_modules/zod/v3/types.js
 var ParseInputLazyPath = class {
   constructor(parent, value, path, key) {
     this._cachedPath = [];
@@ -10926,7 +10926,7 @@ var coerce = {
 };
 var NEVER = INVALID;
 
-// D:/Project/UnityMCP/Server~/node_modules/zod/v4/core/core.js
+// node_modules/zod/v4/core/core.js
 var NEVER2 = Object.freeze({
   status: "aborted"
 });
@@ -10986,7 +10986,7 @@ function config(newConfig) {
   return globalConfig;
 }
 
-// D:/Project/UnityMCP/Server~/node_modules/zod/v4/core/util.js
+// node_modules/zod/v4/core/util.js
 var util_exports = {};
 __export(util_exports, {
   BIGINT_FORMAT_RANGES: () => BIGINT_FORMAT_RANGES,
@@ -11507,7 +11507,7 @@ var Class = class {
   }
 };
 
-// D:/Project/UnityMCP/Server~/node_modules/zod/v4/core/errors.js
+// node_modules/zod/v4/core/errors.js
 var initializer = (inst, def) => {
   inst.name = "$ZodError";
   Object.defineProperty(inst, "_zod", {
@@ -11582,7 +11582,7 @@ function formatError(error2, _mapper) {
   return fieldErrors;
 }
 
-// D:/Project/UnityMCP/Server~/node_modules/zod/v4/core/parse.js
+// node_modules/zod/v4/core/parse.js
 var _parse = (_Err) => (schema, value, _ctx, _params) => {
   const ctx = _ctx ? Object.assign(_ctx, { async: false }) : { async: false };
   const result = schema._zod.run({ value, issues: [] }, ctx);
@@ -11634,7 +11634,7 @@ var _safeParseAsync = (_Err) => async (schema, value, _ctx) => {
 };
 var safeParseAsync = /* @__PURE__ */ _safeParseAsync($ZodRealError);
 
-// D:/Project/UnityMCP/Server~/node_modules/zod/v4/core/regexes.js
+// node_modules/zod/v4/core/regexes.js
 var cuid = /^[cC][^\s-]{8,}$/;
 var cuid2 = /^[0-9a-z]+$/;
 var ulid = /^[0-9A-HJKMNP-TV-Za-hjkmnp-tv-z]{26}$/;
@@ -11692,7 +11692,7 @@ var _null = /null/i;
 var lowercase = /^[^A-Z]*$/;
 var uppercase = /^[^a-z]*$/;
 
-// D:/Project/UnityMCP/Server~/node_modules/zod/v4/core/checks.js
+// node_modules/zod/v4/core/checks.js
 var $ZodCheck = /* @__PURE__ */ $constructor("$ZodCheck", (inst, def) => {
   var _a;
   inst._zod ?? (inst._zod = {});
@@ -12077,7 +12077,7 @@ var $ZodCheckOverwrite = /* @__PURE__ */ $constructor("$ZodCheckOverwrite", (ins
   };
 });
 
-// D:/Project/UnityMCP/Server~/node_modules/zod/v4/core/doc.js
+// node_modules/zod/v4/core/doc.js
 var Doc = class {
   constructor(args = []) {
     this.content = [];
@@ -12113,14 +12113,14 @@ var Doc = class {
   }
 };
 
-// D:/Project/UnityMCP/Server~/node_modules/zod/v4/core/versions.js
+// node_modules/zod/v4/core/versions.js
 var version = {
   major: 4,
   minor: 0,
   patch: 0
 };
 
-// D:/Project/UnityMCP/Server~/node_modules/zod/v4/core/schemas.js
+// node_modules/zod/v4/core/schemas.js
 var $ZodType = /* @__PURE__ */ $constructor("$ZodType", (inst, def) => {
   var _a;
   inst ?? (inst = {});
@@ -13358,7 +13358,7 @@ function handleRefineResult(result, payload, input, inst) {
   }
 }
 
-// D:/Project/UnityMCP/Server~/node_modules/zod/v4/locales/en.js
+// node_modules/zod/v4/locales/en.js
 var parsedType = (data) => {
   const t = typeof data;
   switch (t) {
@@ -13476,7 +13476,7 @@ function en_default2() {
   };
 }
 
-// D:/Project/UnityMCP/Server~/node_modules/zod/v4/core/registries.js
+// node_modules/zod/v4/core/registries.js
 var $output = Symbol("ZodOutput");
 var $input = Symbol("ZodInput");
 var $ZodRegistry = class {
@@ -13526,7 +13526,7 @@ function registry() {
 }
 var globalRegistry = /* @__PURE__ */ registry();
 
-// D:/Project/UnityMCP/Server~/node_modules/zod/v4/core/api.js
+// node_modules/zod/v4/core/api.js
 function _string(Class2, params) {
   return new Class2({
     type: "string",
@@ -13965,7 +13965,7 @@ function _refine(Class2, fn, _params) {
   return schema;
 }
 
-// D:/Project/UnityMCP/Server~/node_modules/zod/v4/core/to-json-schema.js
+// node_modules/zod/v4/core/to-json-schema.js
 var JSONSchemaGenerator = class {
   constructor(params) {
     this.counter = 0;
@@ -14732,7 +14732,7 @@ function isTransforming(_schema, _ctx) {
   throw new Error(`Unknown schema type: ${def.type}`);
 }
 
-// D:/Project/UnityMCP/Server~/node_modules/zod/v4/mini/schemas.js
+// node_modules/zod/v4/mini/schemas.js
 var ZodMiniType = /* @__PURE__ */ $constructor("ZodMiniType", (inst, def) => {
   if (!inst._zod)
     throw new Error("Uninitialized schema in ZodMiniType.");
@@ -14778,7 +14778,7 @@ function object(shape, params) {
   return new ZodMiniObject(def);
 }
 
-// D:/Project/UnityMCP/Server~/node_modules/@modelcontextprotocol/sdk/dist/esm/server/zod-compat.js
+// node_modules/@modelcontextprotocol/sdk/dist/esm/server/zod-compat.js
 function isZ4Schema(s) {
   const schema = s;
   return !!schema._zod;
@@ -14922,7 +14922,7 @@ function getLiteralValue(schema) {
   return void 0;
 }
 
-// D:/Project/UnityMCP/Server~/node_modules/zod/v4/classic/iso.js
+// node_modules/zod/v4/classic/iso.js
 var iso_exports2 = {};
 __export(iso_exports2, {
   ZodISODate: () => ZodISODate,
@@ -14963,7 +14963,7 @@ function duration2(params) {
   return _isoDuration(ZodISODuration, params);
 }
 
-// D:/Project/UnityMCP/Server~/node_modules/zod/v4/classic/errors.js
+// node_modules/zod/v4/classic/errors.js
 var initializer2 = (inst, issues) => {
   $ZodError.init(inst, issues);
   inst.name = "ZodError";
@@ -14997,13 +14997,13 @@ var ZodRealError = $constructor("ZodError", initializer2, {
   Parent: Error
 });
 
-// D:/Project/UnityMCP/Server~/node_modules/zod/v4/classic/parse.js
+// node_modules/zod/v4/classic/parse.js
 var parse2 = /* @__PURE__ */ _parse(ZodRealError);
 var parseAsync2 = /* @__PURE__ */ _parseAsync(ZodRealError);
 var safeParse3 = /* @__PURE__ */ _safeParse(ZodRealError);
 var safeParseAsync3 = /* @__PURE__ */ _safeParseAsync(ZodRealError);
 
-// D:/Project/UnityMCP/Server~/node_modules/zod/v4/classic/schemas.js
+// node_modules/zod/v4/classic/schemas.js
 var ZodType2 = /* @__PURE__ */ $constructor("ZodType", (inst, def) => {
   $ZodType.init(inst, def);
   inst.def = def;
@@ -15614,10 +15614,10 @@ function preprocess(fn, schema) {
   return pipe(transform(fn), schema);
 }
 
-// D:/Project/UnityMCP/Server~/node_modules/zod/v4/classic/external.js
+// node_modules/zod/v4/classic/external.js
 config(en_default2());
 
-// D:/Project/UnityMCP/Server~/node_modules/@modelcontextprotocol/sdk/dist/esm/types.js
+// node_modules/@modelcontextprotocol/sdk/dist/esm/types.js
 var LATEST_PROTOCOL_VERSION = "2025-11-25";
 var SUPPORTED_PROTOCOL_VERSIONS = [LATEST_PROTOCOL_VERSION, "2025-06-18", "2025-03-26", "2024-11-05", "2024-10-07"];
 var RELATED_TASK_META_KEY = "io.modelcontextprotocol/related-task";
@@ -17148,12 +17148,12 @@ var UrlElicitationRequiredError = class extends McpError {
   }
 };
 
-// D:/Project/UnityMCP/Server~/node_modules/@modelcontextprotocol/sdk/dist/esm/experimental/tasks/interfaces.js
+// node_modules/@modelcontextprotocol/sdk/dist/esm/experimental/tasks/interfaces.js
 function isTerminal(status) {
   return status === "completed" || status === "failed" || status === "cancelled";
 }
 
-// D:/Project/UnityMCP/Server~/node_modules/zod-to-json-schema/dist/esm/Options.js
+// node_modules/zod-to-json-schema/dist/esm/Options.js
 var ignoreOverride = Symbol("Let zodToJsonSchema decide on which parser to use");
 var defaultOptions = {
   name: void 0,
@@ -17187,7 +17187,7 @@ var getDefaultOptions = (options) => typeof options === "string" ? {
   ...options
 };
 
-// D:/Project/UnityMCP/Server~/node_modules/zod-to-json-schema/dist/esm/Refs.js
+// node_modules/zod-to-json-schema/dist/esm/Refs.js
 var getRefs = (options) => {
   const _options = getDefaultOptions(options);
   const currentPath = _options.name !== void 0 ? [..._options.basePath, _options.definitionPath, _options.name] : _options.basePath;
@@ -17208,7 +17208,7 @@ var getRefs = (options) => {
   };
 };
 
-// D:/Project/UnityMCP/Server~/node_modules/zod-to-json-schema/dist/esm/errorMessages.js
+// node_modules/zod-to-json-schema/dist/esm/errorMessages.js
 function addErrorMessage(res, key, errorMessage, refs) {
   if (!refs?.errorMessages)
     return;
@@ -17224,7 +17224,7 @@ function setResponseValueAndErrors(res, key, value, errorMessage, refs) {
   addErrorMessage(res, key, errorMessage, refs);
 }
 
-// D:/Project/UnityMCP/Server~/node_modules/zod-to-json-schema/dist/esm/getRelativePath.js
+// node_modules/zod-to-json-schema/dist/esm/getRelativePath.js
 var getRelativePath = (pathA, pathB) => {
   let i = 0;
   for (; i < pathA.length && i < pathB.length; i++) {
@@ -17234,7 +17234,7 @@ var getRelativePath = (pathA, pathB) => {
   return [(pathA.length - i).toString(), ...pathB.slice(i)].join("/");
 };
 
-// D:/Project/UnityMCP/Server~/node_modules/zod-to-json-schema/dist/esm/parsers/any.js
+// node_modules/zod-to-json-schema/dist/esm/parsers/any.js
 function parseAnyDef(refs) {
   if (refs.target !== "openAi") {
     return {};
@@ -17250,7 +17250,7 @@ function parseAnyDef(refs) {
   };
 }
 
-// D:/Project/UnityMCP/Server~/node_modules/zod-to-json-schema/dist/esm/parsers/array.js
+// node_modules/zod-to-json-schema/dist/esm/parsers/array.js
 function parseArrayDef(def, refs) {
   const res = {
     type: "array"
@@ -17274,7 +17274,7 @@ function parseArrayDef(def, refs) {
   return res;
 }
 
-// D:/Project/UnityMCP/Server~/node_modules/zod-to-json-schema/dist/esm/parsers/bigint.js
+// node_modules/zod-to-json-schema/dist/esm/parsers/bigint.js
 function parseBigintDef(def, refs) {
   const res = {
     type: "integer",
@@ -17320,24 +17320,24 @@ function parseBigintDef(def, refs) {
   return res;
 }
 
-// D:/Project/UnityMCP/Server~/node_modules/zod-to-json-schema/dist/esm/parsers/boolean.js
+// node_modules/zod-to-json-schema/dist/esm/parsers/boolean.js
 function parseBooleanDef() {
   return {
     type: "boolean"
   };
 }
 
-// D:/Project/UnityMCP/Server~/node_modules/zod-to-json-schema/dist/esm/parsers/branded.js
+// node_modules/zod-to-json-schema/dist/esm/parsers/branded.js
 function parseBrandedDef(_def, refs) {
   return parseDef(_def.type._def, refs);
 }
 
-// D:/Project/UnityMCP/Server~/node_modules/zod-to-json-schema/dist/esm/parsers/catch.js
+// node_modules/zod-to-json-schema/dist/esm/parsers/catch.js
 var parseCatchDef = (def, refs) => {
   return parseDef(def.innerType._def, refs);
 };
 
-// D:/Project/UnityMCP/Server~/node_modules/zod-to-json-schema/dist/esm/parsers/date.js
+// node_modules/zod-to-json-schema/dist/esm/parsers/date.js
 function parseDateDef(def, refs, overrideDateStrategy) {
   const strategy = overrideDateStrategy ?? refs.dateStrategy;
   if (Array.isArray(strategy)) {
@@ -17396,7 +17396,7 @@ var integerDateParser = (def, refs) => {
   return res;
 };
 
-// D:/Project/UnityMCP/Server~/node_modules/zod-to-json-schema/dist/esm/parsers/default.js
+// node_modules/zod-to-json-schema/dist/esm/parsers/default.js
 function parseDefaultDef(_def, refs) {
   return {
     ...parseDef(_def.innerType._def, refs),
@@ -17404,12 +17404,12 @@ function parseDefaultDef(_def, refs) {
   };
 }
 
-// D:/Project/UnityMCP/Server~/node_modules/zod-to-json-schema/dist/esm/parsers/effects.js
+// node_modules/zod-to-json-schema/dist/esm/parsers/effects.js
 function parseEffectsDef(_def, refs) {
   return refs.effectStrategy === "input" ? parseDef(_def.schema._def, refs) : parseAnyDef(refs);
 }
 
-// D:/Project/UnityMCP/Server~/node_modules/zod-to-json-schema/dist/esm/parsers/enum.js
+// node_modules/zod-to-json-schema/dist/esm/parsers/enum.js
 function parseEnumDef(def) {
   return {
     type: "string",
@@ -17417,7 +17417,7 @@ function parseEnumDef(def) {
   };
 }
 
-// D:/Project/UnityMCP/Server~/node_modules/zod-to-json-schema/dist/esm/parsers/intersection.js
+// node_modules/zod-to-json-schema/dist/esm/parsers/intersection.js
 var isJsonSchema7AllOfType = (type) => {
   if ("type" in type && type.type === "string")
     return false;
@@ -17459,7 +17459,7 @@ function parseIntersectionDef(def, refs) {
   } : void 0;
 }
 
-// D:/Project/UnityMCP/Server~/node_modules/zod-to-json-schema/dist/esm/parsers/literal.js
+// node_modules/zod-to-json-schema/dist/esm/parsers/literal.js
 function parseLiteralDef(def, refs) {
   const parsedType2 = typeof def.value;
   if (parsedType2 !== "bigint" && parsedType2 !== "number" && parsedType2 !== "boolean" && parsedType2 !== "string") {
@@ -17479,7 +17479,7 @@ function parseLiteralDef(def, refs) {
   };
 }
 
-// D:/Project/UnityMCP/Server~/node_modules/zod-to-json-schema/dist/esm/parsers/string.js
+// node_modules/zod-to-json-schema/dist/esm/parsers/string.js
 var emojiRegex2 = void 0;
 var zodPatterns = {
   /**
@@ -17804,7 +17804,7 @@ function stringifyRegExpWithFlags(regex, refs) {
   return pattern;
 }
 
-// D:/Project/UnityMCP/Server~/node_modules/zod-to-json-schema/dist/esm/parsers/record.js
+// node_modules/zod-to-json-schema/dist/esm/parsers/record.js
 function parseRecordDef(def, refs) {
   if (refs.target === "openAi") {
     console.warn("Warning: OpenAI may not support records in schemas! Try an array of key-value pairs instead.");
@@ -17856,7 +17856,7 @@ function parseRecordDef(def, refs) {
   return schema;
 }
 
-// D:/Project/UnityMCP/Server~/node_modules/zod-to-json-schema/dist/esm/parsers/map.js
+// node_modules/zod-to-json-schema/dist/esm/parsers/map.js
 function parseMapDef(def, refs) {
   if (refs.mapStrategy === "record") {
     return parseRecordDef(def, refs);
@@ -17881,7 +17881,7 @@ function parseMapDef(def, refs) {
   };
 }
 
-// D:/Project/UnityMCP/Server~/node_modules/zod-to-json-schema/dist/esm/parsers/nativeEnum.js
+// node_modules/zod-to-json-schema/dist/esm/parsers/nativeEnum.js
 function parseNativeEnumDef(def) {
   const object3 = def.values;
   const actualKeys = Object.keys(def.values).filter((key) => {
@@ -17895,7 +17895,7 @@ function parseNativeEnumDef(def) {
   };
 }
 
-// D:/Project/UnityMCP/Server~/node_modules/zod-to-json-schema/dist/esm/parsers/never.js
+// node_modules/zod-to-json-schema/dist/esm/parsers/never.js
 function parseNeverDef(refs) {
   return refs.target === "openAi" ? void 0 : {
     not: parseAnyDef({
@@ -17905,7 +17905,7 @@ function parseNeverDef(refs) {
   };
 }
 
-// D:/Project/UnityMCP/Server~/node_modules/zod-to-json-schema/dist/esm/parsers/null.js
+// node_modules/zod-to-json-schema/dist/esm/parsers/null.js
 function parseNullDef(refs) {
   return refs.target === "openApi3" ? {
     enum: ["null"],
@@ -17915,7 +17915,7 @@ function parseNullDef(refs) {
   };
 }
 
-// D:/Project/UnityMCP/Server~/node_modules/zod-to-json-schema/dist/esm/parsers/union.js
+// node_modules/zod-to-json-schema/dist/esm/parsers/union.js
 var primitiveMappings = {
   ZodString: "string",
   ZodNumber: "number",
@@ -17983,7 +17983,7 @@ var asAnyOf = (def, refs) => {
   return anyOf.length ? { anyOf } : void 0;
 };
 
-// D:/Project/UnityMCP/Server~/node_modules/zod-to-json-schema/dist/esm/parsers/nullable.js
+// node_modules/zod-to-json-schema/dist/esm/parsers/nullable.js
 function parseNullableDef(def, refs) {
   if (["ZodString", "ZodNumber", "ZodBigInt", "ZodBoolean", "ZodNull"].includes(def.innerType._def.typeName) && (!def.innerType._def.checks || !def.innerType._def.checks.length)) {
     if (refs.target === "openApi3") {
@@ -18015,7 +18015,7 @@ function parseNullableDef(def, refs) {
   return base && { anyOf: [base, { type: "null" }] };
 }
 
-// D:/Project/UnityMCP/Server~/node_modules/zod-to-json-schema/dist/esm/parsers/number.js
+// node_modules/zod-to-json-schema/dist/esm/parsers/number.js
 function parseNumberDef(def, refs) {
   const res = {
     type: "number"
@@ -18064,7 +18064,7 @@ function parseNumberDef(def, refs) {
   return res;
 }
 
-// D:/Project/UnityMCP/Server~/node_modules/zod-to-json-schema/dist/esm/parsers/object.js
+// node_modules/zod-to-json-schema/dist/esm/parsers/object.js
 function parseObjectDef(def, refs) {
   const forceOptionalIntoNullable = refs.target === "openAi";
   const result = {
@@ -18134,7 +18134,7 @@ function safeIsOptional(schema) {
   }
 }
 
-// D:/Project/UnityMCP/Server~/node_modules/zod-to-json-schema/dist/esm/parsers/optional.js
+// node_modules/zod-to-json-schema/dist/esm/parsers/optional.js
 var parseOptionalDef = (def, refs) => {
   if (refs.currentPath.toString() === refs.propertyPath?.toString()) {
     return parseDef(def.innerType._def, refs);
@@ -18153,7 +18153,7 @@ var parseOptionalDef = (def, refs) => {
   } : parseAnyDef(refs);
 };
 
-// D:/Project/UnityMCP/Server~/node_modules/zod-to-json-schema/dist/esm/parsers/pipeline.js
+// node_modules/zod-to-json-schema/dist/esm/parsers/pipeline.js
 var parsePipelineDef = (def, refs) => {
   if (refs.pipeStrategy === "input") {
     return parseDef(def.in._def, refs);
@@ -18173,12 +18173,12 @@ var parsePipelineDef = (def, refs) => {
   };
 };
 
-// D:/Project/UnityMCP/Server~/node_modules/zod-to-json-schema/dist/esm/parsers/promise.js
+// node_modules/zod-to-json-schema/dist/esm/parsers/promise.js
 function parsePromiseDef(def, refs) {
   return parseDef(def.type._def, refs);
 }
 
-// D:/Project/UnityMCP/Server~/node_modules/zod-to-json-schema/dist/esm/parsers/set.js
+// node_modules/zod-to-json-schema/dist/esm/parsers/set.js
 function parseSetDef(def, refs) {
   const items = parseDef(def.valueType._def, {
     ...refs,
@@ -18198,7 +18198,7 @@ function parseSetDef(def, refs) {
   return schema;
 }
 
-// D:/Project/UnityMCP/Server~/node_modules/zod-to-json-schema/dist/esm/parsers/tuple.js
+// node_modules/zod-to-json-schema/dist/esm/parsers/tuple.js
 function parseTupleDef(def, refs) {
   if (def.rest) {
     return {
@@ -18226,24 +18226,24 @@ function parseTupleDef(def, refs) {
   }
 }
 
-// D:/Project/UnityMCP/Server~/node_modules/zod-to-json-schema/dist/esm/parsers/undefined.js
+// node_modules/zod-to-json-schema/dist/esm/parsers/undefined.js
 function parseUndefinedDef(refs) {
   return {
     not: parseAnyDef(refs)
   };
 }
 
-// D:/Project/UnityMCP/Server~/node_modules/zod-to-json-schema/dist/esm/parsers/unknown.js
+// node_modules/zod-to-json-schema/dist/esm/parsers/unknown.js
 function parseUnknownDef(refs) {
   return parseAnyDef(refs);
 }
 
-// D:/Project/UnityMCP/Server~/node_modules/zod-to-json-schema/dist/esm/parsers/readonly.js
+// node_modules/zod-to-json-schema/dist/esm/parsers/readonly.js
 var parseReadonlyDef = (def, refs) => {
   return parseDef(def.innerType._def, refs);
 };
 
-// D:/Project/UnityMCP/Server~/node_modules/zod-to-json-schema/dist/esm/selectParser.js
+// node_modules/zod-to-json-schema/dist/esm/selectParser.js
 var selectParser = (def, typeName, refs) => {
   switch (typeName) {
     case ZodFirstPartyTypeKind.ZodString:
@@ -18319,7 +18319,7 @@ var selectParser = (def, typeName, refs) => {
   }
 };
 
-// D:/Project/UnityMCP/Server~/node_modules/zod-to-json-schema/dist/esm/parseDef.js
+// node_modules/zod-to-json-schema/dist/esm/parseDef.js
 function parseDef(def, refs, forceResolution = false) {
   const seenItem = refs.seen.get(def);
   if (refs.override) {
@@ -18375,7 +18375,7 @@ var addMeta = (def, refs, jsonSchema) => {
   return jsonSchema;
 };
 
-// D:/Project/UnityMCP/Server~/node_modules/zod-to-json-schema/dist/esm/zodToJsonSchema.js
+// node_modules/zod-to-json-schema/dist/esm/zodToJsonSchema.js
 var zodToJsonSchema = (schema, options) => {
   const refs = getRefs(options);
   let definitions = typeof options === "object" && options.definitions ? Object.entries(options.definitions).reduce((acc, [name2, schema2]) => ({
@@ -18437,7 +18437,7 @@ var zodToJsonSchema = (schema, options) => {
   return combined;
 };
 
-// D:/Project/UnityMCP/Server~/node_modules/@modelcontextprotocol/sdk/dist/esm/server/zod-json-schema-compat.js
+// node_modules/@modelcontextprotocol/sdk/dist/esm/server/zod-json-schema-compat.js
 function mapMiniTarget(t) {
   if (!t)
     return "draft-7";
@@ -18479,7 +18479,7 @@ function parseWithCompat(schema, data) {
   return result.data;
 }
 
-// D:/Project/UnityMCP/Server~/node_modules/@modelcontextprotocol/sdk/dist/esm/shared/protocol.js
+// node_modules/@modelcontextprotocol/sdk/dist/esm/shared/protocol.js
 var DEFAULT_REQUEST_TIMEOUT_MSEC = 6e4;
 var Protocol = class {
   constructor(_options) {
@@ -19433,7 +19433,7 @@ function mergeCapabilities(base, additional) {
   return result;
 }
 
-// D:/Project/UnityMCP/Server~/node_modules/@modelcontextprotocol/sdk/dist/esm/validation/ajv-provider.js
+// node_modules/@modelcontextprotocol/sdk/dist/esm/validation/ajv-provider.js
 var import_ajv = __toESM(require_ajv(), 1);
 var import_ajv_formats = __toESM(require_dist(), 1);
 function createDefaultAjvInstance() {
@@ -19501,7 +19501,7 @@ var AjvJsonSchemaValidator = class {
   }
 };
 
-// D:/Project/UnityMCP/Server~/node_modules/@modelcontextprotocol/sdk/dist/esm/experimental/tasks/server.js
+// node_modules/@modelcontextprotocol/sdk/dist/esm/experimental/tasks/server.js
 var ExperimentalServerTasks = class {
   constructor(_server) {
     this._server = _server;
@@ -19714,7 +19714,7 @@ var ExperimentalServerTasks = class {
   }
 };
 
-// D:/Project/UnityMCP/Server~/node_modules/@modelcontextprotocol/sdk/dist/esm/experimental/tasks/helpers.js
+// node_modules/@modelcontextprotocol/sdk/dist/esm/experimental/tasks/helpers.js
 function assertToolsCallTaskCapability(requests, method, entityName) {
   if (!requests) {
     throw new Error(`${entityName} does not support task creation (required for ${method})`);
@@ -19749,7 +19749,7 @@ function assertClientRequestTaskCapability(requests, method, entityName) {
   }
 }
 
-// D:/Project/UnityMCP/Server~/node_modules/@modelcontextprotocol/sdk/dist/esm/server/index.js
+// node_modules/@modelcontextprotocol/sdk/dist/esm/server/index.js
 var Server = class extends Protocol {
   /**
    * Initializes this server with the given name and version information.
@@ -20129,7 +20129,7 @@ var Server = class extends Protocol {
   }
 };
 
-// D:/Project/UnityMCP/Server~/node_modules/@modelcontextprotocol/sdk/dist/esm/server/completable.js
+// node_modules/@modelcontextprotocol/sdk/dist/esm/server/completable.js
 var COMPLETABLE_SYMBOL = Symbol.for("mcp.completable");
 function isCompletable(schema) {
   return !!schema && typeof schema === "object" && COMPLETABLE_SYMBOL in schema;
@@ -20143,7 +20143,7 @@ var McpZodTypeKind;
   McpZodTypeKind2["Completable"] = "McpCompletable";
 })(McpZodTypeKind || (McpZodTypeKind = {}));
 
-// D:/Project/UnityMCP/Server~/node_modules/@modelcontextprotocol/sdk/dist/esm/shared/toolNameValidation.js
+// node_modules/@modelcontextprotocol/sdk/dist/esm/shared/toolNameValidation.js
 var TOOL_NAME_REGEX = /^[A-Za-z0-9._-]{1,128}$/;
 function validateToolName(name) {
   const warnings = [];
@@ -20201,7 +20201,7 @@ function validateAndWarnToolName(name) {
   return result.isValid;
 }
 
-// D:/Project/UnityMCP/Server~/node_modules/@modelcontextprotocol/sdk/dist/esm/experimental/tasks/mcp-server.js
+// node_modules/@modelcontextprotocol/sdk/dist/esm/experimental/tasks/mcp-server.js
 var ExperimentalMcpServerTasks = class {
   constructor(_mcpServer) {
     this._mcpServer = _mcpServer;
@@ -20216,7 +20216,7 @@ var ExperimentalMcpServerTasks = class {
   }
 };
 
-// D:/Project/UnityMCP/Server~/node_modules/@modelcontextprotocol/sdk/dist/esm/server/mcp.js
+// node_modules/@modelcontextprotocol/sdk/dist/esm/server/mcp.js
 var McpServer = class {
   constructor(serverInfo, options) {
     this._registeredResources = {};
@@ -21008,10 +21008,10 @@ var EMPTY_COMPLETION_RESULT = {
   }
 };
 
-// D:/Project/UnityMCP/Server~/node_modules/@modelcontextprotocol/sdk/dist/esm/server/stdio.js
+// node_modules/@modelcontextprotocol/sdk/dist/esm/server/stdio.js
 import process2 from "node:process";
 
-// D:/Project/UnityMCP/Server~/node_modules/@modelcontextprotocol/sdk/dist/esm/shared/stdio.js
+// node_modules/@modelcontextprotocol/sdk/dist/esm/shared/stdio.js
 var ReadBuffer = class {
   append(chunk) {
     this._buffer = this._buffer ? Buffer.concat([this._buffer, chunk]) : chunk;
@@ -21039,7 +21039,7 @@ function serializeMessage(message) {
   return JSON.stringify(message) + "\n";
 }
 
-// D:/Project/UnityMCP/Server~/node_modules/@modelcontextprotocol/sdk/dist/esm/server/stdio.js
+// node_modules/@modelcontextprotocol/sdk/dist/esm/server/stdio.js
 var StdioServerTransport = class {
   constructor(_stdin = process2.stdin, _stdout = process2.stdout) {
     this._stdin = _stdin;
@@ -21321,8 +21321,20 @@ function runProcess(command, args, timeoutMs) {
   });
 }
 
+// src/timeouts.ts
+var MAX_TIMEOUT_MS = 6e4;
+var BRIDGE_TIMEOUT_MS = 2e3;
+var COMPILE_WAIT_MS = 3e4;
+var FIELD_WAIT_MS = 6e3;
+var DIALOG_ARM_MS = 1500;
+var TEST_RUN_TIMEOUT_MS = 3 * 60 * 1e3;
+function clampTimeout(ms) {
+  return Math.min(ms, MAX_TIMEOUT_MS);
+}
+
 // src/commandBridge.ts
 async function executeEditorCommand(options) {
+  const timeoutMs = clampTimeout(options.timeoutMs);
   const id = `${Date.now()}-${randomUUID2()}`;
   const requestsDir = join3(options.commandRoot, "requests");
   const responsesDir = join3(options.commandRoot, "responses");
@@ -21349,13 +21361,14 @@ async function executeEditorCommand(options) {
       options.projectPath,
       "ProjectMQaMcp.Editor.CommandRunner.RunOnce",
       logPath,
-      options.timeoutMs
+      timeoutMs
     );
   }
   const startedAt = Date.now();
-  while (Date.now() - startedAt < options.timeoutMs) {
+  while (Date.now() - startedAt < timeoutMs) {
     if (await pathExists(responsePath)) {
-      return readJsonFile(responsePath);
+      const response = await readJsonFile(responsePath);
+      return { ...response, timeoutUsedMs: timeoutMs };
     }
     await delay(250);
   }
@@ -21373,8 +21386,9 @@ async function executeEditorCommand(options) {
       responsePath,
       responseBytes: await fileSize(responsePath)
     },
+    timeoutUsedMs: timeoutMs,
     error: {
-      message: `Timed out waiting for Unity response after ${options.timeoutMs}ms`
+      message: `Timed out waiting for Unity response after ${timeoutMs}ms`
     }
   };
 }
@@ -21466,6 +21480,7 @@ async function killProcess(pid) {
 
 // src/playMode.ts
 async function setPlayModeAndWait(options) {
+  const timeoutMs = clampTimeout(options.timeoutMs);
   const now = options.now ?? (() => Date.now());
   const delay2 = options.delay ?? defaultDelay;
   const pollIntervalMs = options.pollIntervalMs ?? 500;
@@ -21489,7 +21504,7 @@ async function setPlayModeAndWait(options) {
   }
   let polls = 0;
   let lastStatus;
-  while (now() - startedAt < options.timeoutMs) {
+  while (now() - startedAt < timeoutMs) {
     lastStatus = await options.execute("editor_status", {}, commandTimeoutMs);
     polls += 1;
     const isPlaying = readBooleanOutput(lastStatus.outputs, "isPlaying");
@@ -21517,7 +21532,7 @@ async function setPlayModeAndWait(options) {
     transitionResponse,
     lastStatus,
     error: {
-      message: `Timed out waiting for PlayMode=${options.targetPlaying} after ${options.timeoutMs}ms`
+      message: `Timed out waiting for PlayMode=${options.targetPlaying} after ${timeoutMs}ms`
     }
   };
 }
@@ -21559,6 +21574,7 @@ function defaultDelay(ms) {
 
 // src/uiText.ts
 async function waitThenClick(options) {
+  const timeoutMs = clampTimeout(options.timeoutMs);
   const now = options.now ?? (() => Date.now());
   const exact = options.exact ?? false;
   const commandTimeoutMs = options.commandTimeoutMs ?? 1500;
@@ -21567,7 +21583,7 @@ async function waitThenClick(options) {
     text: options.text,
     exact,
     includeInactive: options.includeInactive,
-    timeoutMs: options.timeoutMs,
+    timeoutMs,
     pollIntervalMs: options.pollIntervalMs,
     commandTimeoutMs,
     execute: options.execute,
@@ -21604,6 +21620,7 @@ async function waitThenClick(options) {
   };
 }
 async function clickUiTextAndWait(options) {
+  const timeoutMs = clampTimeout(options.timeoutMs);
   const now = options.now ?? (() => Date.now());
   const exact = options.exact ?? false;
   const commandTimeoutMs = options.commandTimeoutMs ?? 1500;
@@ -21626,7 +21643,7 @@ async function clickUiTextAndWait(options) {
       }
     };
   }
-  const remainingMs2 = Math.max(0, options.timeoutMs - (now() - startedAt));
+  const remainingMs2 = Math.max(0, timeoutMs - (now() - startedAt));
   const waitResult = await waitForUiText({
     text: options.waitText,
     exact,
@@ -21653,6 +21670,7 @@ async function clickUiTextAndWait(options) {
   };
 }
 async function waitForUiText(options) {
+  const timeoutMs = clampTimeout(options.timeoutMs);
   const now = options.now ?? (() => Date.now());
   const delay2 = options.delay ?? defaultDelay2;
   const exact = options.exact ?? false;
@@ -21662,7 +21680,7 @@ async function waitForUiText(options) {
   let polls = 0;
   let lastUi = "";
   let lastResponse;
-  while (now() - startedAt < options.timeoutMs) {
+  while (now() - startedAt < timeoutMs) {
     lastResponse = await options.execute("dump_ui", {
       includeInactive: options.includeInactive ?? false
     }, commandTimeoutMs);
@@ -21705,7 +21723,7 @@ async function waitForUiText(options) {
     lastUi,
     lastResponse,
     error: {
-      message: `Timed out waiting for UI text "${options.text}" after ${options.timeoutMs}ms`
+      message: `Timed out waiting for UI text "${options.text}" after ${timeoutMs}ms`
     }
   };
 }
@@ -21789,6 +21807,7 @@ function readNumberOutput(value) {
 
 // src/qaFlow.ts
 async function runUiTextQaFlow(options) {
+  const timeoutMs = clampTimeout(options.timeoutMs);
   const now = options.now ?? (() => Date.now());
   const pollIntervalMs = options.pollIntervalMs ?? 500;
   const commandTimeoutMs = options.commandTimeoutMs ?? 1500;
@@ -21810,7 +21829,7 @@ async function runUiTextQaFlow(options) {
   const enter = await recordStep(steps, "enter_play_mode", now, async () => {
     return setPlayModeAndWait({
       targetPlaying: true,
-      timeoutMs: remainingMs(options.timeoutMs, startedAt, now),
+      timeoutMs: remainingMs(timeoutMs, startedAt, now),
       pollIntervalMs,
       commandTimeoutMs,
       execute: options.execute,
@@ -21827,7 +21846,7 @@ async function runUiTextQaFlow(options) {
       text: options.initialText,
       exact,
       includeInactive: options.includeInactive,
-      timeoutMs: remainingMs(options.timeoutMs, startedAt, now),
+      timeoutMs: remainingMs(timeoutMs, startedAt, now),
       pollIntervalMs,
       commandTimeoutMs,
       execute: options.execute,
@@ -21857,7 +21876,7 @@ async function runUiTextQaFlow(options) {
       waitText: options.expectedText,
       exact,
       includeInactive: options.includeInactive,
-      timeoutMs: remainingMs(options.timeoutMs, startedAt, now),
+      timeoutMs: remainingMs(timeoutMs, startedAt, now),
       pollIntervalMs,
       commandTimeoutMs,
       execute: options.execute,
@@ -21885,7 +21904,7 @@ async function runUiTextQaFlow(options) {
     const exit = await recordStep(steps, "exit_play_mode", now, async () => {
       return setPlayModeAndWait({
         targetPlaying: false,
-        timeoutMs: remainingMs(options.timeoutMs, startedAt, now),
+        timeoutMs: remainingMs(timeoutMs, startedAt, now),
         pollIntervalMs,
         commandTimeoutMs,
         execute: options.execute,
@@ -21948,10 +21967,8 @@ var windowShape = {
   windowTitle: external_exports.string().optional().describe("Window tab title, used when the type name is unknown."),
   instanceId: external_exports.number().int().optional().describe("Exact window instance id from unity_editor_window_list.")
 };
-var timeoutSchema = external_exports.number().int().positive().max(60 * 60 * 1e3).optional();
 var commonShape = {
   ...baseConfigShape,
-  timeoutMs: timeoutSchema,
   runOnce: external_exports.boolean().optional()
 };
 var JSON_OUTPUT_KEYS = /* @__PURE__ */ new Set([
@@ -22305,8 +22322,7 @@ function registerEditorTools(server2) {
     {
       ...commonShape,
       forceRecompile: external_exports.boolean().optional().describe("Also request a script recompilation even when no asset changed. Off by default."),
-      waitForCompile: external_exports.boolean().optional().describe("Wait until compilation finishes (default true)."),
-      waitTimeoutMs: external_exports.number().int().min(1e3).max(30 * 60 * 1e3).optional().describe("How long to wait for compilation (default 30000).")
+      waitForCompile: external_exports.boolean().optional().describe("Wait until compilation finishes (default true).")
     },
     async (params) => {
       const requested = await runBridge(params, "editor_refresh", {
@@ -22315,10 +22331,16 @@ function registerEditorTools(server2) {
       if (!requested.success || (params.waitForCompile ?? true) === false) {
         return toToolResult(requested);
       }
-      const status = await waitForCompile(params, params.waitTimeoutMs ?? 3e4);
+      const status = await waitForCompile(params, COMPILE_WAIT_MS);
       return toToolResult({
         ...requested,
-        outputs: { ...requested.outputs, compile: status.outputs, compileWaitTimedOut: status.timedOut },
+        outputs: {
+          ...requested.outputs,
+          compile: status.outputs,
+          compileWaitTimedOut: status.timedOut,
+          // Reported so the caller can see the wait that ran. It is not theirs to set.
+          compileWaitMs: COMPILE_WAIT_MS
+        },
         // An editor that came back with compile errors is not a successful refresh from the caller's side.
         success: requested.success && !status.timedOut && Number(status.outputs?.errorCount ?? 0) === 0
       });
@@ -22339,12 +22361,11 @@ function registerEditorTools(server2) {
       fieldPath: external_exports.string().describe('Dotted/indexed path, e.g. "_isBuilding" or "_results[0].state".'),
       expected: external_exports.string().describe("Value to wait for, compared as text."),
       comparison: external_exports.enum(["equals", "contains", "notEquals"]).optional().describe("How to compare (default equals)."),
-      pollIntervalMs: external_exports.number().int().min(100).max(1e4).optional().describe("Gap between reads (default 500)."),
-      waitTimeoutMs: external_exports.number().int().min(1e3).max(30 * 60 * 1e3).optional().describe("Give up after this long (default 6000).")
+      pollIntervalMs: external_exports.number().int().min(100).max(1e4).optional().describe("Gap between reads (default 500).")
     },
     async (params) => {
       const interval = params.pollIntervalMs ?? 500;
-      const deadline = Date.now() + (params.waitTimeoutMs ?? 6e3);
+      const deadline = Date.now() + clampTimeout(FIELD_WAIT_MS);
       const comparison = params.comparison ?? "equals";
       let attempts = 0;
       let last;
@@ -22489,14 +22510,13 @@ function registerEditorTools(server2) {
       buttonLabel: external_exports.string().optional().describe("Substring of the button text, matched case-insensitively. Preferred over index: it is checked against the real button and reported back."),
       buttonIndex: external_exports.number().int().min(0).optional().describe("Zero-based button position, used when no label is given. 0 is the accept button, 1 the cancel one."),
       dialogTitle: external_exports.string().optional().describe("Only act on a dialog whose title contains this. Required to target a Unity container window rather than a native dialog box."),
-      armMs: external_exports.number().int().min(500).max(12e4).optional().describe("How long to wait for the dialog to appear before giving up (default 1500)."),
       onMiss: external_exports.enum(["cancel", "leave"]).optional().describe('What to do when no button matches. "cancel" (default) presses the last button - normally Cancel - so the editor starts ticking again, and reports missed=true so the press is not mistaken for a choice. "leave" presses nothing, which leaves the editor blocked until someone dismisses the dialog by hand.')
     },
     async (params) => toToolResult(await runBridge(params, "editor_dialog_click", {
       buttonLabel: params.buttonLabel,
       buttonIndexText: params.buttonIndex === void 0 ? void 0 : String(params.buttonIndex),
       dialogTitle: params.dialogTitle,
-      armMs: params.armMs ?? 1500,
+      armMs: DIALOG_ARM_MS,
       onMiss: params.onMiss ?? "cancel"
     }))
   );
@@ -22654,13 +22674,14 @@ function dragParameters(params) {
     noFocus: params.noFocus ?? false
   };
 }
-async function waitForCompile(params, timeoutMs) {
+async function waitForCompile(params, requestedTimeoutMs) {
+  const timeoutMs = clampTimeout(requestedTimeoutMs);
   const deadline = Date.now() + timeoutMs;
   let started = false;
   let last;
   while (Date.now() < deadline) {
     try {
-      last = await runBridge({ ...params, timeoutMs: 1500 }, "editor_compile_status", {});
+      last = await runBridge(params, "editor_compile_status", {});
       const status = String(last.outputs?.status ?? "");
       const compiling = String(last.outputs?.isCompiling ?? "") === "true";
       if (compiling || status === "compiling") {
@@ -22689,7 +22710,7 @@ async function runBridge(params, command, extra) {
       instanceId: params.instanceId ?? 0,
       ...stripUndefined(extra)
     },
-    timeoutMs: params.timeoutMs ?? 2e3,
+    timeoutMs: clampTimeout(BRIDGE_TIMEOUT_MS),
     runOnce: params.runOnce ?? false
   });
   return { ...response, outputs: decodeOutputs(response) };
@@ -22748,7 +22769,6 @@ var baseConfigShape2 = {
   projectPath: external_exports.string().optional(),
   commandRoot: external_exports.string().optional()
 };
-var timeoutSchema2 = external_exports.number().int().positive().max(60 * 60 * 1e3).optional();
 function registerTools(server2) {
   server2.tool("unity_status", "Checks Unity, ProjectM, command bridge, logs, port, and stale process status.", {
     ...baseConfigShape2
@@ -22759,13 +22779,11 @@ function registerTools(server2) {
   }, async (params) => toToolResult2(await unityLaunch(params)));
   server2.tool("unity_run_editmode_tests", "Runs Unity Test Framework EditMode tests through Unity CLI and parses XML results.", {
     ...baseConfigShape2,
-    testFilter: external_exports.string().optional(),
-    timeoutMs: timeoutSchema2
+    testFilter: external_exports.string().optional()
   }, async (params) => toToolResult2(await unityRunTests({ ...params, mode: "EditMode" })));
   server2.tool("unity_run_playmode_tests", "Runs Unity Test Framework PlayMode tests through Unity CLI and parses XML results.", {
     ...baseConfigShape2,
-    testFilter: external_exports.string().optional(),
-    timeoutMs: timeoutSchema2
+    testFilter: external_exports.string().optional()
   }, async (params) => toToolResult2(await unityRunTests({ ...params, mode: "PlayMode" })));
   server2.tool("unity_read_editor_log", "Reads Editor.log tail and summarizes recent warnings, errors, and bridge lines.", {
     logPath: external_exports.string().optional(),
@@ -22776,7 +22794,6 @@ function registerTools(server2) {
     ...baseConfigShape2,
     command: external_exports.string(),
     parameters: external_exports.record(external_exports.unknown()).optional(),
-    timeoutMs: timeoutSchema2,
     runOnce: external_exports.boolean().optional()
   }, async (params) => toToolResult2(await unityExecuteEditorCommand(params)));
   server2.tool("unity_capture_screenshot", "Requests a Unity screenshot and verifies that the PNG exists and has non-zero size.", {
@@ -22787,7 +22804,6 @@ function registerTools(server2) {
     height: external_exports.number().int().positive().max(8192).optional(),
     requireRequestedSize: external_exports.boolean().optional(),
     includeOverlayUi: external_exports.boolean().optional().describe("Also draw Screen Space Overlay uGUI canvases (title screens, HUDs, menus) into the capture. They are borrowed onto the top camera only while capturing."),
-    timeoutMs: timeoutSchema2,
     runOnce: external_exports.boolean().optional()
   }, async (params) => toToolResult2(await unityCaptureScreenshot(params)));
   server2.tool("unity_click_at", "Clicks the UI at a normalized screen point (0,0 = top-left, 1,1 = bottom-right) in Play Mode: NGUI first, then uGUI through EventSystem, then a physics pick. Pass expectHitContains to refuse a click that would land on something else.", {
@@ -22795,14 +22811,12 @@ function registerTools(server2) {
     pointX: external_exports.number().min(0).max(1),
     pointY: external_exports.number().min(0).max(1),
     expectHitContains: external_exports.string().optional(),
-    timeoutMs: timeoutSchema2,
     runOnce: external_exports.boolean().optional()
   }, async (params) => toToolResult2(await unityClickAt(params)));
   server2.tool("unity_click_ui_text", "Finds a visible NGUI label by text and clicks its resolved clickable target.", {
     ...baseConfigShape2,
     text: external_exports.string().min(1),
     includeInactive: external_exports.boolean().optional(),
-    timeoutMs: timeoutSchema2,
     runOnce: external_exports.boolean().optional()
   }, async (params) => toToolResult2(await unityClickUiText(params)));
   server2.tool("unity_wait_ui_text", "Polls dump_ui until the requested UI text appears.", {
@@ -22810,7 +22824,6 @@ function registerTools(server2) {
     text: external_exports.string().min(1),
     exact: external_exports.boolean().optional(),
     includeInactive: external_exports.boolean().optional(),
-    timeoutMs: timeoutSchema2,
     pollIntervalMs: external_exports.number().int().positive().max(1e4).optional()
   }, async (params) => toToolResult2(await unityWaitUiText(params)));
   server2.tool("unity_click_ui_text_and_wait", "Clicks a visible NGUI label by text, then waits for expected UI text.", {
@@ -22819,7 +22832,6 @@ function registerTools(server2) {
     waitText: external_exports.string().min(1),
     exact: external_exports.boolean().optional(),
     includeInactive: external_exports.boolean().optional(),
-    timeoutMs: timeoutSchema2,
     pollIntervalMs: external_exports.number().int().positive().max(1e4).optional()
   }, async (params) => toToolResult2(await unityClickUiTextAndWait(params)));
   server2.tool("unity_wait_then_click", "Polls dump_ui until the requested text appears, then clicks it. Useful for buttons that appear after a variable-length animation or load.", {
@@ -22827,7 +22839,6 @@ function registerTools(server2) {
     text: external_exports.string().min(1),
     exact: external_exports.boolean().optional(),
     includeInactive: external_exports.boolean().optional(),
-    timeoutMs: timeoutSchema2,
     pollIntervalMs: external_exports.number().int().positive().max(1e4).optional()
   }, async (params) => toToolResult2(await unityWaitThenClick(params)));
   server2.tool("unity_run_ui_text_qa_flow", "Runs a full PlayMode UI text QA flow: enter, wait, screenshot, click, wait, screenshot, and optional exit.", {
@@ -22838,7 +22849,6 @@ function registerTools(server2) {
     outputRoot: external_exports.string().optional(),
     exact: external_exports.boolean().optional(),
     includeInactive: external_exports.boolean().optional(),
-    timeoutMs: timeoutSchema2,
     pollIntervalMs: external_exports.number().int().positive().max(1e4).optional(),
     width: external_exports.number().int().positive().max(8192).optional(),
     height: external_exports.number().int().positive().max(8192).optional(),
@@ -22847,12 +22857,10 @@ function registerTools(server2) {
   }, async (params) => toToolResult2(await unityRunUiTextQaFlow(params)));
   server2.tool("unity_enter_play_mode", "Requests Unity PlayMode and waits until editor_status reports isPlaying=true.", {
     ...baseConfigShape2,
-    timeoutMs: timeoutSchema2,
     pollIntervalMs: external_exports.number().int().positive().max(1e4).optional()
   }, async (params) => toToolResult2(await unitySetPlayMode(params, true)));
   server2.tool("unity_exit_play_mode", "Requests Unity to leave PlayMode and waits until editor_status reports isPlaying=false.", {
     ...baseConfigShape2,
-    timeoutMs: timeoutSchema2,
     pollIntervalMs: external_exports.number().int().positive().max(1e4).optional()
   }, async (params) => toToolResult2(await unitySetPlayMode(params, false)));
   server2.tool("unity_start_frame_capture", "Starts recording the Unity game view as a PNG frame sequence on every editor update, for fast motion a single screenshot round-trip misses. Returns immediately with the frames folder; run the fast action, then call unity_stop_frame_capture. Auto-stops at maxFrames/maxDurationSeconds. Use only when a single screenshot cannot catch the change.", {
@@ -22864,13 +22872,11 @@ function registerTools(server2) {
     captureEveryNthUpdate: external_exports.number().int().positive().max(60).optional(),
     maxFrames: external_exports.number().int().positive().max(3600).optional(),
     maxDurationSeconds: external_exports.number().positive().max(120).optional(),
-    timeoutMs: timeoutSchema2,
     runOnce: external_exports.boolean().optional()
   }, async (params) => toToolResult2(await unityStartFrameCapture(params)));
   server2.tool("unity_stop_frame_capture", "Stops the running game view frame-sequence recording and returns the frames folder, frame count, and fps. Read the PNG frame sequence in order to inspect the fast motion.", {
     ...baseConfigShape2,
     framesDir: external_exports.string().optional(),
-    timeoutMs: timeoutSchema2,
     runOnce: external_exports.boolean().optional()
   }, async (params) => toToolResult2(await unityStopFrameCapture(params)));
   server2.tool("unity_kill_stale", "Reports stale Unity/node/MCP processes and optionally kills only explicit stale candidates.", {
@@ -22882,8 +22888,7 @@ function registerTools(server2) {
     ...baseConfigShape2,
     targetPath: external_exports.string().optional(),
     targetName: external_exports.string().optional(),
-    includeInactive: external_exports.boolean().optional(),
-    timeoutMs: timeoutSchema2
+    includeInactive: external_exports.boolean().optional()
   }, async (params) => toToolResult2(await unitySimpleCommand(params, "inspect_object", {
     targetPath: params.targetPath,
     targetName: params.targetName,
@@ -22893,8 +22898,7 @@ function registerTools(server2) {
     ...baseConfigShape2,
     nameQuery: external_exports.string().min(1),
     includeInactive: external_exports.boolean().optional(),
-    maxCount: external_exports.number().int().positive().max(500).optional(),
-    timeoutMs: timeoutSchema2
+    maxCount: external_exports.number().int().positive().max(500).optional()
   }, async (params) => toToolResult2(await unitySimpleCommand(params, "find_objects", {
     nameQuery: params.nameQuery,
     includeInactive: params.includeInactive ?? false,
@@ -22905,8 +22909,7 @@ function registerTools(server2) {
     targetPath: external_exports.string().optional(),
     targetName: external_exports.string().optional(),
     active: external_exports.boolean(),
-    includeInactive: external_exports.boolean().optional(),
-    timeoutMs: timeoutSchema2
+    includeInactive: external_exports.boolean().optional()
   }, async (params) => toToolResult2(await unitySimpleCommand(params, "set_active", {
     targetPath: params.targetPath,
     targetName: params.targetName,
@@ -22918,8 +22921,7 @@ function registerTools(server2) {
     targetPath: external_exports.string().optional(),
     targetName: external_exports.string().optional(),
     value: external_exports.string(),
-    includeInactive: external_exports.boolean().optional(),
-    timeoutMs: timeoutSchema2
+    includeInactive: external_exports.boolean().optional()
   }, async (params) => toToolResult2(await unitySimpleCommand(params, "set_label_text", {
     targetPath: params.targetPath,
     targetName: params.targetName,
@@ -22931,8 +22933,7 @@ function registerTools(server2) {
     targetPath: external_exports.string().optional(),
     targetName: external_exports.string().optional(),
     value: external_exports.string(),
-    includeInactive: external_exports.boolean().optional(),
-    timeoutMs: timeoutSchema2
+    includeInactive: external_exports.boolean().optional()
   }, async (params) => toToolResult2(await unitySimpleCommand(params, "set_input_text", {
     targetPath: params.targetPath,
     targetName: params.targetName,
@@ -22944,8 +22945,7 @@ function registerTools(server2) {
     targetPath: external_exports.string().optional(),
     targetName: external_exports.string().optional(),
     value: external_exports.string(),
-    includeInactive: external_exports.boolean().optional(),
-    timeoutMs: timeoutSchema2
+    includeInactive: external_exports.boolean().optional()
   }, async (params) => toToolResult2(await unitySimpleCommand(params, "set_sprite", {
     targetPath: params.targetPath,
     targetName: params.targetName,
@@ -22953,8 +22953,7 @@ function registerTools(server2) {
     includeInactive: params.includeInactive ?? false
   })));
   server2.tool("unity_scene_info", "Reports the active scene, all loaded scenes, and the active scene root GameObjects for QA context.", {
-    ...baseConfigShape2,
-    timeoutMs: timeoutSchema2
+    ...baseConfigShape2
   }, async (params) => toToolResult2(await unitySimpleCommand(params, "scene_info", {})));
   server2.tool("unity_get_hierarchy", "Dumps a depth-limited GameObject tree under a path (or the active scene roots), with active/clickable/label hints.", {
     ...baseConfigShape2,
@@ -22962,8 +22961,7 @@ function registerTools(server2) {
     targetName: external_exports.string().optional(),
     maxDepth: external_exports.number().int().positive().max(20).optional(),
     maxCount: external_exports.number().int().positive().max(2e3).optional(),
-    includeInactive: external_exports.boolean().optional(),
-    timeoutMs: timeoutSchema2
+    includeInactive: external_exports.boolean().optional()
   }, async (params) => toToolResult2(await unitySimpleCommand(params, "get_hierarchy", {
     targetPath: params.targetPath,
     targetName: params.targetName,
@@ -22976,8 +22974,7 @@ function registerTools(server2) {
     targetPath: external_exports.string().optional(),
     targetName: external_exports.string().optional(),
     componentName: external_exports.string().min(1),
-    includeInactive: external_exports.boolean().optional(),
-    timeoutMs: timeoutSchema2
+    includeInactive: external_exports.boolean().optional()
   }, async (params) => toToolResult2(await unitySimpleCommand(params, "get_component", {
     targetPath: params.targetPath,
     targetName: params.targetName,
@@ -22988,8 +22985,7 @@ function registerTools(server2) {
     ...baseConfigShape2,
     typeName: external_exports.string().min(1),
     methodName: external_exports.string().min(1),
-    methodArgs: external_exports.array(external_exports.string()).optional(),
-    timeoutMs: timeoutSchema2
+    methodArgs: external_exports.array(external_exports.string()).optional()
   }, async (params) => toToolResult2(await unitySimpleCommand(params, "invoke_static_method", {
     typeName: params.typeName,
     methodName: params.methodName,
@@ -22997,8 +22993,7 @@ function registerTools(server2) {
   })));
   server2.tool("unity_get_asset_guid", 'Returns the GUID and main asset type for a project-relative asset path (e.g. "Assets/Foo.prefab"). Empty guid means the asset does not exist.', {
     ...baseConfigShape2,
-    assetPath: external_exports.string().min(1),
-    timeoutMs: timeoutSchema2
+    assetPath: external_exports.string().min(1)
   }, async (params) => toToolResult2(await unitySimpleCommand(params, "get_asset_guid", {
     assetPath: params.assetPath
   })));
@@ -23006,8 +23001,7 @@ function registerTools(server2) {
     ...baseConfigShape2,
     assetPath: external_exports.string().min(1),
     forceUpdate: external_exports.boolean().optional(),
-    recursive: external_exports.boolean().optional(),
-    timeoutMs: timeoutSchema2
+    recursive: external_exports.boolean().optional()
   }, async (params) => toToolResult2(await unitySimpleCommand(params, "import_asset", {
     assetPath: params.assetPath,
     forceUpdate: params.forceUpdate ?? false,
@@ -23073,7 +23067,7 @@ async function unityRunTests(params) {
     commandRoot: config2.commandRoot,
     mode: params.mode,
     testFilter: params.testFilter,
-    timeoutMs: params.timeoutMs ?? 3 * 60 * 1e3
+    timeoutMs: TEST_RUN_TIMEOUT_MS
   });
 }
 async function unityReadEditorLog(params) {
@@ -23100,7 +23094,7 @@ async function unityExecuteEditorCommand(params) {
     commandRoot: config2.commandRoot,
     command: params.command,
     parameters: params.parameters,
-    timeoutMs: params.timeoutMs ?? 1500,
+    timeoutMs: 1500,
     runOnce: params.runOnce ?? false
   });
 }
@@ -23119,7 +23113,7 @@ async function unityCaptureScreenshot(params) {
       height: params.height ?? 720,
       includeOverlayUi: params.includeOverlayUi ?? false
     },
-    timeoutMs: params.timeoutMs ?? 1500,
+    timeoutMs: 1500,
     runOnce: params.runOnce ?? false
   });
   const bytes = await fileSize(outputPath);
@@ -23159,7 +23153,7 @@ async function unityClickUiText(params) {
       text: params.text,
       includeInactive: params.includeInactive ?? false
     },
-    timeoutMs: params.timeoutMs ?? 1500,
+    timeoutMs: 1500,
     runOnce: params.runOnce ?? false
   });
 }
@@ -23170,9 +23164,9 @@ async function unityClickUiTextAndWait(params) {
     waitText: params.waitText,
     exact: params.exact ?? false,
     includeInactive: params.includeInactive ?? false,
-    timeoutMs: params.timeoutMs ?? 3e3,
+    timeoutMs: 3e3,
     pollIntervalMs: params.pollIntervalMs ?? 500,
-    commandTimeoutMs: Math.min(params.timeoutMs ?? 1500, 1500),
+    commandTimeoutMs: 1500,
     execute: (command, parameters, timeoutMs) => executeEditorCommand({
       unityPath: config2.unityPath,
       projectPath: config2.projectPath,
@@ -23194,9 +23188,9 @@ async function unityRunUiTextQaFlow(params) {
     outputRoot,
     exact: params.exact ?? true,
     includeInactive: params.includeInactive ?? false,
-    timeoutMs: params.timeoutMs ?? 9e3,
+    timeoutMs: 9e3,
     pollIntervalMs: params.pollIntervalMs ?? 500,
-    commandTimeoutMs: Math.min(params.timeoutMs ?? 1500, 1500),
+    commandTimeoutMs: 1500,
     width: params.width ?? 1280,
     height: params.height ?? 720,
     requireRequestedSize: params.requireRequestedSize ?? false,
@@ -23218,9 +23212,9 @@ async function unityWaitUiText(params) {
     text: params.text,
     exact: params.exact ?? false,
     includeInactive: params.includeInactive ?? false,
-    timeoutMs: params.timeoutMs ?? 3e3,
+    timeoutMs: 3e3,
     pollIntervalMs: params.pollIntervalMs ?? 500,
-    commandTimeoutMs: Math.min(params.timeoutMs ?? 1500, 1500),
+    commandTimeoutMs: 1500,
     execute: (command, parameters, timeoutMs) => executeEditorCommand({
       unityPath: config2.unityPath,
       projectPath: config2.projectPath,
@@ -23238,9 +23232,9 @@ async function unityWaitThenClick(params) {
     text: params.text,
     exact: params.exact ?? false,
     includeInactive: params.includeInactive ?? false,
-    timeoutMs: params.timeoutMs ?? 3e3,
+    timeoutMs: 3e3,
     pollIntervalMs: params.pollIntervalMs ?? 500,
-    commandTimeoutMs: Math.min(params.timeoutMs ?? 1500, 1500),
+    commandTimeoutMs: 1500,
     execute: (command, parameters, timeoutMs) => executeEditorCommand({
       unityPath: config2.unityPath,
       projectPath: config2.projectPath,
@@ -23256,9 +23250,9 @@ async function unitySetPlayMode(params, targetPlaying) {
   const config2 = resolveProjectConfig(params);
   return setPlayModeAndWait({
     targetPlaying,
-    timeoutMs: params.timeoutMs ?? 6e3,
+    timeoutMs: 6e3,
     pollIntervalMs: params.pollIntervalMs ?? 500,
-    commandTimeoutMs: Math.min(params.timeoutMs ?? 1500, 1500),
+    commandTimeoutMs: 1500,
     execute: (command, parameters, timeoutMs) => executeEditorCommand({
       unityPath: config2.unityPath,
       projectPath: config2.projectPath,
@@ -23287,7 +23281,7 @@ async function unityStartFrameCapture(params) {
       maxFrames: params.maxFrames ?? 600,
       maxDurationSeconds: params.maxDurationSeconds ?? 30
     },
-    timeoutMs: params.timeoutMs ?? 1500,
+    timeoutMs: 1500,
     runOnce: params.runOnce ?? false
   });
   return {
@@ -23308,7 +23302,7 @@ async function unityStopFrameCapture(params) {
     parameters: {
       framesDir: params.framesDir
     },
-    timeoutMs: params.timeoutMs ?? 1500,
+    timeoutMs: 1500,
     runOnce: params.runOnce ?? false
   });
   const outputs = normalizeOutputs(response.outputs);
@@ -23391,7 +23385,7 @@ async function unitySimpleCommand(params, command, parameters) {
     commandRoot: config2.commandRoot,
     command,
     parameters: cleaned,
-    timeoutMs: params.timeoutMs ?? 1500,
+    timeoutMs: 1500,
     runOnce: false
   });
 }

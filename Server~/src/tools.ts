@@ -14,14 +14,13 @@ import { clickUiTextAndWait, waitForUiText, waitThenClick } from './uiText.js';
 import { runUiTextQaFlow } from './qaFlow.js';
 import { verifyScreenshotResponse } from './screenshot.js';
 import { registerEditorTools } from './editorTools.js';
+import { TEST_RUN_TIMEOUT_MS } from './timeouts.js';
 
 const baseConfigShape = {
   unityPath: z.string().optional(),
   projectPath: z.string().optional(),
   commandRoot: z.string().optional(),
 };
-
-const timeoutSchema = z.number().int().positive().max(60 * 60 * 1000).optional();
 
 export function registerTools(server: McpServer): void {
   server.tool('unity_status', 'Checks Unity, ProjectM, command bridge, logs, port, and stale process status.', {
@@ -36,13 +35,11 @@ export function registerTools(server: McpServer): void {
   server.tool('unity_run_editmode_tests', 'Runs Unity Test Framework EditMode tests through Unity CLI and parses XML results.', {
     ...baseConfigShape,
     testFilter: z.string().optional(),
-    timeoutMs: timeoutSchema,
   }, async (params) => toToolResult(await unityRunTests({ ...params, mode: 'EditMode' })));
 
   server.tool('unity_run_playmode_tests', 'Runs Unity Test Framework PlayMode tests through Unity CLI and parses XML results.', {
     ...baseConfigShape,
     testFilter: z.string().optional(),
-    timeoutMs: timeoutSchema,
   }, async (params) => toToolResult(await unityRunTests({ ...params, mode: 'PlayMode' })));
 
   server.tool('unity_read_editor_log', 'Reads Editor.log tail and summarizes recent warnings, errors, and bridge lines.', {
@@ -55,7 +52,6 @@ export function registerTools(server: McpServer): void {
     ...baseConfigShape,
     command: z.string(),
     parameters: z.record(z.unknown()).optional(),
-    timeoutMs: timeoutSchema,
     runOnce: z.boolean().optional(),
   }, async (params) => toToolResult(await unityExecuteEditorCommand(params)));
 
@@ -67,7 +63,6 @@ export function registerTools(server: McpServer): void {
     height: z.number().int().positive().max(8192).optional(),
     requireRequestedSize: z.boolean().optional(),
     includeOverlayUi: z.boolean().optional().describe('Also draw Screen Space Overlay uGUI canvases (title screens, HUDs, menus) into the capture. They are borrowed onto the top camera only while capturing.'),
-    timeoutMs: timeoutSchema,
     runOnce: z.boolean().optional(),
   }, async (params) => toToolResult(await unityCaptureScreenshot(params)));
 
@@ -76,7 +71,6 @@ export function registerTools(server: McpServer): void {
     pointX: z.number().min(0).max(1),
     pointY: z.number().min(0).max(1),
     expectHitContains: z.string().optional(),
-    timeoutMs: timeoutSchema,
     runOnce: z.boolean().optional(),
   }, async (params) => toToolResult(await unityClickAt(params)));
 
@@ -84,7 +78,6 @@ export function registerTools(server: McpServer): void {
     ...baseConfigShape,
     text: z.string().min(1),
     includeInactive: z.boolean().optional(),
-    timeoutMs: timeoutSchema,
     runOnce: z.boolean().optional(),
   }, async (params) => toToolResult(await unityClickUiText(params)));
 
@@ -93,7 +86,6 @@ export function registerTools(server: McpServer): void {
     text: z.string().min(1),
     exact: z.boolean().optional(),
     includeInactive: z.boolean().optional(),
-    timeoutMs: timeoutSchema,
     pollIntervalMs: z.number().int().positive().max(10000).optional(),
   }, async (params) => toToolResult(await unityWaitUiText(params)));
 
@@ -103,7 +95,6 @@ export function registerTools(server: McpServer): void {
     waitText: z.string().min(1),
     exact: z.boolean().optional(),
     includeInactive: z.boolean().optional(),
-    timeoutMs: timeoutSchema,
     pollIntervalMs: z.number().int().positive().max(10000).optional(),
   }, async (params) => toToolResult(await unityClickUiTextAndWait(params)));
 
@@ -112,7 +103,6 @@ export function registerTools(server: McpServer): void {
     text: z.string().min(1),
     exact: z.boolean().optional(),
     includeInactive: z.boolean().optional(),
-    timeoutMs: timeoutSchema,
     pollIntervalMs: z.number().int().positive().max(10000).optional(),
   }, async (params) => toToolResult(await unityWaitThenClick(params)));
 
@@ -124,7 +114,6 @@ export function registerTools(server: McpServer): void {
     outputRoot: z.string().optional(),
     exact: z.boolean().optional(),
     includeInactive: z.boolean().optional(),
-    timeoutMs: timeoutSchema,
     pollIntervalMs: z.number().int().positive().max(10000).optional(),
     width: z.number().int().positive().max(8192).optional(),
     height: z.number().int().positive().max(8192).optional(),
@@ -134,13 +123,11 @@ export function registerTools(server: McpServer): void {
 
   server.tool('unity_enter_play_mode', 'Requests Unity PlayMode and waits until editor_status reports isPlaying=true.', {
     ...baseConfigShape,
-    timeoutMs: timeoutSchema,
     pollIntervalMs: z.number().int().positive().max(10000).optional(),
   }, async (params) => toToolResult(await unitySetPlayMode(params, true)));
 
   server.tool('unity_exit_play_mode', 'Requests Unity to leave PlayMode and waits until editor_status reports isPlaying=false.', {
     ...baseConfigShape,
-    timeoutMs: timeoutSchema,
     pollIntervalMs: z.number().int().positive().max(10000).optional(),
   }, async (params) => toToolResult(await unitySetPlayMode(params, false)));
   server.tool('unity_start_frame_capture', 'Starts recording the Unity game view as a PNG frame sequence on every editor update, for fast motion a single screenshot round-trip misses. Returns immediately with the frames folder; run the fast action, then call unity_stop_frame_capture. Auto-stops at maxFrames/maxDurationSeconds. Use only when a single screenshot cannot catch the change.', {
@@ -152,14 +139,12 @@ export function registerTools(server: McpServer): void {
     captureEveryNthUpdate: z.number().int().positive().max(60).optional(),
     maxFrames: z.number().int().positive().max(3600).optional(),
     maxDurationSeconds: z.number().positive().max(120).optional(),
-    timeoutMs: timeoutSchema,
     runOnce: z.boolean().optional(),
   }, async (params) => toToolResult(await unityStartFrameCapture(params)));
 
   server.tool('unity_stop_frame_capture', 'Stops the running game view frame-sequence recording and returns the frames folder, frame count, and fps. Read the PNG frame sequence in order to inspect the fast motion.', {
     ...baseConfigShape,
     framesDir: z.string().optional(),
-    timeoutMs: timeoutSchema,
     runOnce: z.boolean().optional(),
   }, async (params) => toToolResult(await unityStopFrameCapture(params)));
 
@@ -177,7 +162,6 @@ export function registerTools(server: McpServer): void {
     targetPath: z.string().optional(),
     targetName: z.string().optional(),
     includeInactive: z.boolean().optional(),
-    timeoutMs: timeoutSchema,
   }, async (params) => toToolResult(await unitySimpleCommand(params, 'inspect_object', {
     targetPath: params.targetPath,
     targetName: params.targetName,
@@ -189,7 +173,6 @@ export function registerTools(server: McpServer): void {
     nameQuery: z.string().min(1),
     includeInactive: z.boolean().optional(),
     maxCount: z.number().int().positive().max(500).optional(),
-    timeoutMs: timeoutSchema,
   }, async (params) => toToolResult(await unitySimpleCommand(params, 'find_objects', {
     nameQuery: params.nameQuery,
     includeInactive: params.includeInactive ?? false,
@@ -202,7 +185,6 @@ export function registerTools(server: McpServer): void {
     targetName: z.string().optional(),
     active: z.boolean(),
     includeInactive: z.boolean().optional(),
-    timeoutMs: timeoutSchema,
   }, async (params) => toToolResult(await unitySimpleCommand(params, 'set_active', {
     targetPath: params.targetPath,
     targetName: params.targetName,
@@ -216,7 +198,6 @@ export function registerTools(server: McpServer): void {
     targetName: z.string().optional(),
     value: z.string(),
     includeInactive: z.boolean().optional(),
-    timeoutMs: timeoutSchema,
   }, async (params) => toToolResult(await unitySimpleCommand(params, 'set_label_text', {
     targetPath: params.targetPath,
     targetName: params.targetName,
@@ -230,7 +211,6 @@ export function registerTools(server: McpServer): void {
     targetName: z.string().optional(),
     value: z.string(),
     includeInactive: z.boolean().optional(),
-    timeoutMs: timeoutSchema,
   }, async (params) => toToolResult(await unitySimpleCommand(params, 'set_input_text', {
     targetPath: params.targetPath,
     targetName: params.targetName,
@@ -244,7 +224,6 @@ export function registerTools(server: McpServer): void {
     targetName: z.string().optional(),
     value: z.string(),
     includeInactive: z.boolean().optional(),
-    timeoutMs: timeoutSchema,
   }, async (params) => toToolResult(await unitySimpleCommand(params, 'set_sprite', {
     targetPath: params.targetPath,
     targetName: params.targetName,
@@ -254,7 +233,6 @@ export function registerTools(server: McpServer): void {
 
   server.tool('unity_scene_info', 'Reports the active scene, all loaded scenes, and the active scene root GameObjects for QA context.', {
     ...baseConfigShape,
-    timeoutMs: timeoutSchema,
   }, async (params) => toToolResult(await unitySimpleCommand(params, 'scene_info', {})));
 
   server.tool('unity_get_hierarchy', 'Dumps a depth-limited GameObject tree under a path (or the active scene roots), with active/clickable/label hints.', {
@@ -264,7 +242,6 @@ export function registerTools(server: McpServer): void {
     maxDepth: z.number().int().positive().max(20).optional(),
     maxCount: z.number().int().positive().max(2000).optional(),
     includeInactive: z.boolean().optional(),
-    timeoutMs: timeoutSchema,
   }, async (params) => toToolResult(await unitySimpleCommand(params, 'get_hierarchy', {
     targetPath: params.targetPath,
     targetName: params.targetName,
@@ -279,7 +256,6 @@ export function registerTools(server: McpServer): void {
     targetName: z.string().optional(),
     componentName: z.string().min(1),
     includeInactive: z.boolean().optional(),
-    timeoutMs: timeoutSchema,
   }, async (params) => toToolResult(await unitySimpleCommand(params, 'get_component', {
     targetPath: params.targetPath,
     targetName: params.targetName,
@@ -296,7 +272,6 @@ export function registerTools(server: McpServer): void {
     typeName: z.string().min(1),
     methodName: z.string().min(1),
     methodArgs: z.array(z.string()).optional(),
-    timeoutMs: timeoutSchema,
   }, async (params) => toToolResult(await unitySimpleCommand(params, 'invoke_static_method', {
     typeName: params.typeName,
     methodName: params.methodName,
@@ -314,7 +289,6 @@ export function registerTools(server: McpServer): void {
   server.tool('unity_get_asset_guid', 'Returns the GUID and main asset type for a project-relative asset path (e.g. "Assets/Foo.prefab"). Empty guid means the asset does not exist.', {
     ...baseConfigShape,
     assetPath: z.string().min(1),
-    timeoutMs: timeoutSchema,
   }, async (params) => toToolResult(await unitySimpleCommand(params, 'get_asset_guid', {
     assetPath: params.assetPath,
   })));
@@ -324,7 +298,6 @@ export function registerTools(server: McpServer): void {
     assetPath: z.string().min(1),
     forceUpdate: z.boolean().optional(),
     recursive: z.boolean().optional(),
-    timeoutMs: timeoutSchema,
   }, async (params) => toToolResult(await unitySimpleCommand(params, 'import_asset', {
     assetPath: params.assetPath,
     forceUpdate: params.forceUpdate ?? false,
@@ -398,7 +371,7 @@ async function unityRunTests(params: any): Promise<unknown> {
     commandRoot: config.commandRoot,
     mode: params.mode,
     testFilter: params.testFilter,
-    timeoutMs: params.timeoutMs ?? 3 * 60 * 1000,
+    timeoutMs: TEST_RUN_TIMEOUT_MS,
   });
 }
 
@@ -428,7 +401,7 @@ async function unityExecuteEditorCommand(params: any): Promise<unknown> {
     commandRoot: config.commandRoot,
     command: params.command,
     parameters: params.parameters,
-    timeoutMs: params.timeoutMs ?? 1500,
+    timeoutMs: 1500,
     runOnce: params.runOnce ?? false,
   });
 }
@@ -448,7 +421,7 @@ async function unityCaptureScreenshot(params: any): Promise<unknown> {
       height: params.height ?? 720,
       includeOverlayUi: params.includeOverlayUi ?? false,
     },
-    timeoutMs: params.timeoutMs ?? 1500,
+    timeoutMs: 1500,
     runOnce: params.runOnce ?? false,
   });
   const bytes = await fileSize(outputPath);
@@ -491,7 +464,7 @@ async function unityClickUiText(params: any): Promise<unknown> {
       text: params.text,
       includeInactive: params.includeInactive ?? false,
     },
-    timeoutMs: params.timeoutMs ?? 1500,
+    timeoutMs: 1500,
     runOnce: params.runOnce ?? false,
   });
 }
@@ -503,9 +476,9 @@ async function unityClickUiTextAndWait(params: any): Promise<unknown> {
     waitText: params.waitText,
     exact: params.exact ?? false,
     includeInactive: params.includeInactive ?? false,
-    timeoutMs: params.timeoutMs ?? 3000,
+    timeoutMs: 3000,
     pollIntervalMs: params.pollIntervalMs ?? 500,
-    commandTimeoutMs: Math.min(params.timeoutMs ?? 1500, 1500),
+    commandTimeoutMs: 1500,
     execute: (command, parameters, timeoutMs) => executeEditorCommand({
       unityPath: config.unityPath,
       projectPath: config.projectPath,
@@ -528,9 +501,9 @@ async function unityRunUiTextQaFlow(params: any): Promise<unknown> {
     outputRoot,
     exact: params.exact ?? true,
     includeInactive: params.includeInactive ?? false,
-    timeoutMs: params.timeoutMs ?? 9000,
+    timeoutMs: 9000,
     pollIntervalMs: params.pollIntervalMs ?? 500,
-    commandTimeoutMs: Math.min(params.timeoutMs ?? 1500, 1500),
+    commandTimeoutMs: 1500,
     width: params.width ?? 1280,
     height: params.height ?? 720,
     requireRequestedSize: params.requireRequestedSize ?? false,
@@ -553,9 +526,9 @@ async function unityWaitUiText(params: any): Promise<unknown> {
     text: params.text,
     exact: params.exact ?? false,
     includeInactive: params.includeInactive ?? false,
-    timeoutMs: params.timeoutMs ?? 3000,
+    timeoutMs: 3000,
     pollIntervalMs: params.pollIntervalMs ?? 500,
-    commandTimeoutMs: Math.min(params.timeoutMs ?? 1500, 1500),
+    commandTimeoutMs: 1500,
     execute: (command, parameters, timeoutMs) => executeEditorCommand({
       unityPath: config.unityPath,
       projectPath: config.projectPath,
@@ -574,9 +547,9 @@ async function unityWaitThenClick(params: any): Promise<unknown> {
     text: params.text,
     exact: params.exact ?? false,
     includeInactive: params.includeInactive ?? false,
-    timeoutMs: params.timeoutMs ?? 3000,
+    timeoutMs: 3000,
     pollIntervalMs: params.pollIntervalMs ?? 500,
-    commandTimeoutMs: Math.min(params.timeoutMs ?? 1500, 1500),
+    commandTimeoutMs: 1500,
     execute: (command, parameters, timeoutMs) => executeEditorCommand({
       unityPath: config.unityPath,
       projectPath: config.projectPath,
@@ -593,9 +566,9 @@ async function unitySetPlayMode(params: any, targetPlaying: boolean): Promise<un
   const config = resolveProjectConfig(params);
   return setPlayModeAndWait({
     targetPlaying,
-    timeoutMs: params.timeoutMs ?? 6000,
+    timeoutMs: 6000,
     pollIntervalMs: params.pollIntervalMs ?? 500,
-    commandTimeoutMs: Math.min(params.timeoutMs ?? 1500, 1500),
+    commandTimeoutMs: 1500,
     execute: (command, parameters, timeoutMs) => executeEditorCommand({
       unityPath: config.unityPath,
       projectPath: config.projectPath,
@@ -625,7 +598,7 @@ async function unityStartFrameCapture(params: any): Promise<unknown> {
       maxFrames: params.maxFrames ?? 600,
       maxDurationSeconds: params.maxDurationSeconds ?? 30,
     },
-    timeoutMs: params.timeoutMs ?? 1500,
+    timeoutMs: 1500,
     runOnce: params.runOnce ?? false,
   });
 
@@ -648,7 +621,7 @@ async function unityStopFrameCapture(params: any): Promise<unknown> {
     parameters: {
       framesDir: params.framesDir,
     },
-    timeoutMs: params.timeoutMs ?? 1500,
+    timeoutMs: 1500,
     runOnce: params.runOnce ?? false,
   });
 
@@ -743,7 +716,7 @@ async function unitySimpleCommand(params: any, command: string, parameters: Reco
     commandRoot: config.commandRoot,
     command,
     parameters: cleaned,
-    timeoutMs: params.timeoutMs ?? 1500,
+    timeoutMs: 1500,
     runOnce: false,
   });
 }
