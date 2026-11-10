@@ -177,6 +177,7 @@ namespace ProjectMQaMcp.Editor
                     // 아직 안 끝난 명령이다. 여기서 응답을 쓰면 결과가 나오기도 전에
                     // "성공"이 먼저 나가 버리므로, 요청 경로만 넘겨 두고 그 명령이 마무리하게 둔다.
                     RegisterDeferredRequestPath(requestPath);
+                    RegisterGameMouseRequestPath(requestPath);
                 }
                 else
                 {
@@ -237,6 +238,9 @@ namespace ProjectMQaMcp.Editor
                     break;
                 case "game_key":
                     GameKey(parameters, response);
+                    break;
+                case "game_mouse":
+                    GameMouse(parameters, response);
                     break;
                 case "click_ui_text":
                     ClickUiText(parameters, response);
@@ -2293,6 +2297,223 @@ namespace ProjectMQaMcp.Editor
         }
 #endif
 
+        // ---- game_mouse: PlayMode 게임에 마우스 입력을 넣는다 (레거시 Input 용) ----
+        //
+        // game_key 는 Input System 상태 이벤트라 activeInputHandler 가 레거시(0)인 프로젝트
+        // (예: RTS)의 Input.GetMouseButtonDown / Input.mousePosition 에는 닿지 않는다.
+        // 에디터의 Game 뷰는 실제 마우스를 게임에 넘길 때 OnGUI 에서 좌표를 게임 화면 픽셀
+        // (왼쪽 위 원점)로 바꾼 뒤 EditorGUIUtility.QueueGameViewInputEvent 로 넘긴다.
+        // 같은 내부 함수에 이벤트를 넣으면 OS 커서를 움직이지 않고(작업자 입력을 빼앗지 않고)
+        // 게임이 실제 마우스를 받은 것과 같은 경로로 입력이 들어간다.
+        //
+        // 한 프레임에 이동·눌림·뗌을 몰아 넣으면 게임 Update 가 눌림 전이를 못 볼 수 있으므로
+        // 게임 프레임(Time.frameCount)이 바뀔 때마다 한 단계씩 진행한다.
+        //   stage 0) 이동 → stage 1) 눌림 → stage 2) holdFrames 동안 유지 후 뗌 → stage 3) 응답
+        private sealed class GameMouseRequest
+        {
+            public CommandResponse response;
+            public string requestPath;
+            public Vector2 position;
+            public int button;
+            public string action;
+            public int holdFrames;
+            public int stage;
+            public int lastFrame = -1;
+            public int heldFrames;
+            public int gameFrames;
+            public double deadline;
+            public Vector3 inputMouseAfterMove;
+        }
+
+        private static GameMouseRequest activeGameMouse;
+        private static System.Reflection.MethodInfo queueGameViewInputEvent;
+
+        private static void GameMouse(CommandParameters parameters, CommandResponse response)
+        {
+            if (!Application.isPlaying)
+            {
+                response.success = false;
+                response.error = new CommandError { message = "game_mouse requires PlayMode." };
+                return;
+            }
+
+            if (activeGameMouse != null)
+            {
+                response.success = false;
+                response.error = new CommandError { message = $"another game_mouse sequence is still running (stage={activeGameMouse.stage})." };
+                return;
+            }
+
+            if (queueGameViewInputEvent == null)
+            {
+                queueGameViewInputEvent = typeof(EditorGUIUtility).GetMethod("QueueGameViewInputEvent",
+                    System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Public);
+            }
+            if (queueGameViewInputEvent == null)
+            {
+                response.success = false;
+                response.error = new CommandError { message = "EditorGUIUtility.QueueGameViewInputEvent not found in this Unity version." };
+                return;
+            }
+
+            var action = string.IsNullOrEmpty(parameters.mouseAction) ? "click" : parameters.mouseAction.ToLowerInvariant();
+            if (action != "click" && action != "move" && action != "down" && action != "up")
+            {
+                response.success = false;
+                response.error = new CommandError { message = $"mouseAction must be click|move|down|up (got '{parameters.mouseAction}')." };
+                return;
+            }
+
+            if (parameters.button < 0 || parameters.button > 2)
+            {
+                response.success = false;
+                response.error = new CommandError { message = $"button must be 0 (left), 1 (right) or 2 (middle) (got {parameters.button})." };
+                return;
+            }
+
+            // 좌표는 게임 화면 픽셀(Screen.width x Screen.height, 왼쪽 위 원점). normalized 면 0..1 을 곱한다.
+            var position = parameters.normalized
+                ? new Vector2(parameters.x * Screen.width, parameters.y * Screen.height)
+                : new Vector2(parameters.x, parameters.y);
+            if (position.x < 0 || position.y < 0 || position.x > Screen.width || position.y > Screen.height)
+            {
+                response.success = false;
+                response.error = new CommandError { message = $"point ({position.x},{position.y}) is outside the game screen {Screen.width}x{Screen.height}." };
+                return;
+            }
+
+            activeGameMouse = new GameMouseRequest
+            {
+                response = response,
+                position = position,
+                button = parameters.button,
+                action = action,
+                holdFrames = Math.Max(1, parameters.holdFrames),
+                deadline = EditorApplication.timeSinceStartup + 8.0
+            };
+            EditorApplication.update += GameMouseUpdate;
+            response.deferred = true;
+        }
+
+        private static void RegisterGameMouseRequestPath(string requestPath)
+        {
+            if (activeGameMouse != null && activeGameMouse.requestPath == null)
+            {
+                activeGameMouse.requestPath = requestPath;
+            }
+        }
+
+        private static void QueueGameMouseEvent(GameMouseRequest request, EventType type)
+        {
+            var evt = new Event
+            {
+                type = type,
+                mousePosition = request.position,
+                button = request.button,
+                clickCount = type == EventType.MouseDown || type == EventType.MouseUp ? 1 : 0,
+                displayIndex = 0
+            };
+            queueGameViewInputEvent.Invoke(null, new object[] { evt });
+        }
+
+        private static void GameMouseUpdate()
+        {
+            var request = activeGameMouse;
+            if (request == null)
+            {
+                EditorApplication.update -= GameMouseUpdate;
+                return;
+            }
+
+            if (!Application.isPlaying)
+            {
+                FinishGameMouse(request, "PlayMode ended mid-sequence.");
+                return;
+            }
+
+            if (EditorApplication.timeSinceStartup > request.deadline)
+            {
+                FinishGameMouse(request, $"watchdog timeout at stage {request.stage} (gameFrames={request.gameFrames}) - the game may be paused.");
+                return;
+            }
+
+            // 게임 프레임이 넘어갈 때만 한 단계 진행한다. 같은 프레임에 두 단계를 넣지 않는다.
+            if (Time.frameCount == request.lastFrame)
+            {
+                return;
+            }
+            request.lastFrame = Time.frameCount;
+            request.gameFrames++;
+
+            switch (request.stage)
+            {
+                case 0:
+                    QueueGameMouseEvent(request, EventType.MouseMove);
+                    request.stage = 1;
+                    if (request.action == "move")
+                    {
+                        request.stage = 3;
+                    }
+                    break;
+                case 1:
+                    request.inputMouseAfterMove = Input.mousePosition;
+                    if (request.action == "up")
+                    {
+                        QueueGameMouseEvent(request, EventType.MouseUp);
+                        request.stage = 3;
+                        break;
+                    }
+                    QueueGameMouseEvent(request, EventType.MouseDown);
+                    request.stage = request.action == "down" ? 3 : 2;
+                    break;
+                case 2:
+                    request.heldFrames++;
+                    if (request.heldFrames >= request.holdFrames)
+                    {
+                        QueueGameMouseEvent(request, EventType.MouseUp);
+                        request.stage = 3;
+                    }
+                    break;
+                case 3:
+                    FinishGameMouse(request, null);
+                    break;
+            }
+        }
+
+        private static void FinishGameMouse(GameMouseRequest request, string error)
+        {
+            EditorApplication.update -= GameMouseUpdate;
+            activeGameMouse = null;
+
+            // 중간에 끊겼는데 눌린 채로 남으면 게임이 드래그로 읽는다. 눌림을 보냈다면 뗌을 보낸다.
+            if (error != null && request.stage == 2 && Application.isPlaying)
+            {
+                QueueGameMouseEvent(request, EventType.MouseUp);
+            }
+
+            var response = request.response;
+            response.AddOutput("action", request.action);
+            response.AddOutput("button", request.button.ToString());
+            response.AddOutput("gameX", request.position.x.ToString(System.Globalization.CultureInfo.InvariantCulture));
+            response.AddOutput("gameY", request.position.y.ToString(System.Globalization.CultureInfo.InvariantCulture));
+            response.AddOutput("screen", $"{Screen.width}x{Screen.height}");
+            // 레거시 Input 이 실제로 받은 좌표(왼쪽 아래 원점). gameY 와 Screen.height - y 가 맞아야 정상.
+            response.AddOutput("inputMousePosition", $"{request.inputMouseAfterMove.x},{request.inputMouseAfterMove.y}");
+            response.AddOutput("gameFrames", request.gameFrames.ToString());
+            response.AddOutput("stageReached", request.stage.ToString());
+            response.success = error == null;
+            if (error != null)
+            {
+                response.error = new CommandError { message = error };
+            }
+
+            WriteResponse(response);
+            if (!string.IsNullOrEmpty(request.requestPath))
+            {
+                TryArchiveRequest(request.requestPath);
+            }
+        }
+
         private static void ClickAt(CommandParameters parameters, CommandResponse response)
         {
             var pointX = ResolvePointX(parameters);
@@ -3450,6 +3671,10 @@ namespace ProjectMQaMcp.Editor
         public int clickCount;
         public string modifiers;
         public string keyCode;
+        // game_mouse: click|move|down|up, x/y 를 0..1 로 볼지, 눌림 유지 게임 프레임 수.
+        public string mouseAction;
+        public bool normalized;
+        public int holdFrames;
 
         public string filter;
         public int maxEntries;
