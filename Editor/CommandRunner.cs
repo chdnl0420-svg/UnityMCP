@@ -2299,21 +2299,27 @@ namespace ProjectMQaMcp.Editor
 
         // ---- game_mouse: PlayMode 게임에 마우스 입력을 넣는다 (레거시 Input 용) ----
         //
-        // game_key 는 Input System 상태 이벤트라 activeInputHandler 가 레거시(0)인 프로젝트
-        // (예: RTS)의 Input.GetMouseButtonDown / Input.mousePosition 에는 닿지 않는다.
-        // 에디터의 Game 뷰는 실제 마우스를 게임에 넘길 때 OnGUI 에서 좌표를 게임 화면 픽셀
-        // (왼쪽 위 원점)로 바꾼 뒤 EditorGUIUtility.QueueGameViewInputEvent 로 넘긴다.
-        // 같은 내부 함수에 이벤트를 넣으면 OS 커서를 움직이지 않고(작업자 입력을 빼앗지 않고)
-        // 게임이 실제 마우스를 받은 것과 같은 경로로 입력이 들어간다.
+        // game_key 는 Input System 상태 이벤트라 activeInputHandler 가 레거시(0)인 프로젝트(예: RTS)의
+        // Input.mousePosition / GetMouseButton* 에 닿지 않는다. 레거시 Input 의 마우스 좌표는 엔진이
+        // 실제 OS 커서로 계산해서 밖에서 넣을 공식 통로가 없다(2026-11-10 실측: QueueGameViewInputEvent 는
+        // Repaint 때 RenderView 가 덮어쓰고, Game 뷰 창 PostMessage(WM_MOUSEMOVE) 도 좌표 불변).
+        // SetCursorPos 는 작업자의 마우스를 빼앗으므로 쓰지 않는다.
+        //
+        // 그래서 클릭이 진행되는 몇 프레임 동안만 UnityEngine.Input 의 마우스 함수 네 개
+        // (mousePosition 게터, GetMouseButton, GetMouseButtonDown, GetMouseButtonUp)의 기계어 첫머리를
+        // 「브릿지 함수로 점프」로 덮어쓴다(Harmony 가 하는 일과 같은 원리, 외부 DLL 없이 직접).
+        // 클릭이 끝나거나 실패·PlayMode 종료로 끊기면 덮어쓴 바이트를 반드시 원래대로 돌려놓는다.
+        // 바꿔치기한 동안에는 실제 마우스 버튼·좌표를 읽지 않는다 — 클릭 몇 프레임 동안만이다.
         //
         // 한 프레임에 이동·눌림·뗌을 몰아 넣으면 게임 Update 가 눌림 전이를 못 볼 수 있으므로
         // 게임 프레임(Time.frameCount)이 바뀔 때마다 한 단계씩 진행한다.
-        //   stage 0) 이동 → stage 1) 눌림 → stage 2) holdFrames 동안 유지 후 뗌 → stage 3) 응답
+        //   stage 0) 바꿔치기 + 자리 잡기 → 1) 눌림 → 2) holdFrames 동안 유지 → 3) 뗌 → 4) 원복 후 응답
+        // 좌표 x/y 는 게임 화면 픽셀(왼쪽 위 원점, 스크린샷과 같은 방향)이다.
         private sealed class GameMouseRequest
         {
             public CommandResponse response;
             public string requestPath;
-            public Vector2 position;
+            public Vector2 gamePoint;
             public int button;
             public string action;
             public int holdFrames;
@@ -2322,11 +2328,126 @@ namespace ProjectMQaMcp.Editor
             public int heldFrames;
             public int gameFrames;
             public double deadline;
-            public Vector3 inputMouseAfterMove;
+            public Vector3 inputMouseSeen;
         }
 
         private static GameMouseRequest activeGameMouse;
-        private static System.Reflection.MethodInfo queueGameViewInputEvent;
+
+        // 바꿔치기한 동안 게임이 읽는 값. 브릿지 함수(Hook*)가 이것을 돌려준다.
+        private static Vector3 hookedMousePosition;
+        private static int hookedButton;
+        private static bool hookedHeld;
+        private static bool hookedDown;
+        private static bool hookedUp;
+
+        private static Vector3 HookMousePosition() => hookedMousePosition;
+        private static bool HookGetMouseButton(int button) => button == hookedButton && hookedHeld;
+        private static bool HookGetMouseButtonDown(int button) => button == hookedButton && hookedDown;
+        private static bool HookGetMouseButtonUp(int button) => button == hookedButton && hookedUp;
+
+        private static class GameMouseNative
+        {
+            [System.Runtime.InteropServices.DllImport("kernel32.dll")]
+            internal static extern bool VirtualProtect(IntPtr address, UIntPtr size, uint newProtect, out uint oldProtect);
+
+            [System.Runtime.InteropServices.DllImport("kernel32.dll")]
+            internal static extern bool FlushInstructionCache(IntPtr process, IntPtr address, UIntPtr size);
+
+            [System.Runtime.InteropServices.DllImport("kernel32.dll")]
+            internal static extern IntPtr GetCurrentProcess();
+
+            internal const uint PageExecuteReadWrite = 0x40;
+        }
+
+        // 덮어쓴 함수 하나의 기록 — 원복에 쓴다.
+        private sealed class CodePatch
+        {
+            public string name;
+            public IntPtr site;
+            public byte[] original;
+        }
+
+        private static readonly List<CodePatch> activeCodePatches = new List<CodePatch>();
+
+        // x64: mov rax, <대상 주소 8바이트>; jmp rax  → 12바이트. 첫머리 12바이트만 덮어쓰고 원본은 보관한다.
+        private const int JumpLength = 12;
+
+        private static string InstallGameMouseHooks()
+        {
+            if (IntPtr.Size != 8) return "game_mouse supports only 64-bit editors.";
+            const System.Reflection.BindingFlags anyStatic = System.Reflection.BindingFlags.Static |
+                System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic;
+            var self = typeof(CommandRunner);
+            var pairs = new[]
+            {
+                (typeof(Input).GetProperty("mousePosition", anyStatic)?.GetGetMethod(true), self.GetMethod(nameof(HookMousePosition), anyStatic)),
+                (typeof(Input).GetMethod("GetMouseButton", anyStatic, null, new[] { typeof(int) }, null), self.GetMethod(nameof(HookGetMouseButton), anyStatic)),
+                (typeof(Input).GetMethod("GetMouseButtonDown", anyStatic, null, new[] { typeof(int) }, null), self.GetMethod(nameof(HookGetMouseButtonDown), anyStatic)),
+                (typeof(Input).GetMethod("GetMouseButtonUp", anyStatic, null, new[] { typeof(int) }, null), self.GetMethod(nameof(HookGetMouseButtonUp), anyStatic))
+            };
+            foreach (var (target, hook) in pairs)
+            {
+                if (target == null || hook == null)
+                {
+                    RemoveGameMouseHooks();
+                    return "UnityEngine.Input mouse method not found in this Unity version.";
+                }
+                // JIT 컴파일을 먼저 끝내 둬야 함수 포인터가 실제 기계어를 가리킨다.
+                System.Runtime.CompilerServices.RuntimeHelpers.PrepareMethod(target.MethodHandle);
+                System.Runtime.CompilerServices.RuntimeHelpers.PrepareMethod(hook.MethodHandle);
+                var site = target.MethodHandle.GetFunctionPointer();
+                var destination = hook.MethodHandle.GetFunctionPointer();
+                var jump = new byte[JumpLength];
+                jump[0] = 0x48; jump[1] = 0xB8;
+                BitConverter.GetBytes(destination.ToInt64()).CopyTo(jump, 2);
+                jump[10] = 0xFF; jump[11] = 0xE0;
+                var original = new byte[JumpLength];
+                if (!WriteCode(site, jump, original))
+                {
+                    RemoveGameMouseHooks();
+                    return $"VirtualProtect failed while patching Input.{target.Name}.";
+                }
+                activeCodePatches.Add(new CodePatch { name = target.Name, site = site, original = original });
+            }
+            return null;
+        }
+
+        private static void RemoveGameMouseHooks()
+        {
+            foreach (var patch in activeCodePatches)
+            {
+                WriteCode(patch.site, patch.original, null);
+            }
+            activeCodePatches.Clear();
+        }
+
+        private static bool WriteCode(IntPtr site, byte[] code, byte[] saveOriginal)
+        {
+            if (!GameMouseNative.VirtualProtect(site, (UIntPtr)code.Length, GameMouseNative.PageExecuteReadWrite, out var oldProtect))
+            {
+                return false;
+            }
+            if (saveOriginal != null)
+            {
+                System.Runtime.InteropServices.Marshal.Copy(site, saveOriginal, 0, saveOriginal.Length);
+            }
+            System.Runtime.InteropServices.Marshal.Copy(code, 0, site, code.Length);
+            GameMouseNative.VirtualProtect(site, (UIntPtr)code.Length, oldProtect, out _);
+            GameMouseNative.FlushInstructionCache(GameMouseNative.GetCurrentProcess(), site, (UIntPtr)code.Length);
+            return true;
+        }
+
+        // 에디터 update 에서 읽는 Screen.width 는 그때 그리는 창 크기라 게임 해상도가 아니다(실측 784x709).
+        // Game 뷰의 렌더 크기(targetRenderSize)를 기준으로 쓴다.
+        private static Vector2 GameViewRenderSize()
+        {
+            var gameViewType = typeof(EditorWindow).Assembly.GetType("UnityEditor.GameView");
+            var views = gameViewType == null ? new UnityEngine.Object[0] : Resources.FindObjectsOfTypeAll(gameViewType);
+            var prop = gameViewType?.GetProperty("targetRenderSize", System.Reflection.BindingFlags.Instance |
+                System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Public);
+            if (views.Length == 0 || prop == null) return new Vector2(Screen.width, Screen.height);
+            return (Vector2)prop.GetValue(views[0]);
+        }
 
         private static void GameMouse(CommandParameters parameters, CommandResponse response)
         {
@@ -2344,23 +2465,11 @@ namespace ProjectMQaMcp.Editor
                 return;
             }
 
-            if (queueGameViewInputEvent == null)
-            {
-                queueGameViewInputEvent = typeof(EditorGUIUtility).GetMethod("QueueGameViewInputEvent",
-                    System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Public);
-            }
-            if (queueGameViewInputEvent == null)
-            {
-                response.success = false;
-                response.error = new CommandError { message = "EditorGUIUtility.QueueGameViewInputEvent not found in this Unity version." };
-                return;
-            }
-
             var action = string.IsNullOrEmpty(parameters.mouseAction) ? "click" : parameters.mouseAction.ToLowerInvariant();
-            if (action != "click" && action != "move" && action != "down" && action != "up")
+            if (action != "click" && action != "move")
             {
                 response.success = false;
-                response.error = new CommandError { message = $"mouseAction must be click|move|down|up (got '{parameters.mouseAction}')." };
+                response.error = new CommandError { message = $"mouseAction must be click|move (got '{parameters.mouseAction}')." };
                 return;
             }
 
@@ -2371,26 +2480,42 @@ namespace ProjectMQaMcp.Editor
                 return;
             }
 
-            // 좌표는 게임 화면 픽셀(Screen.width x Screen.height, 왼쪽 위 원점). normalized 면 0..1 을 곱한다.
-            var position = parameters.normalized
-                ? new Vector2(parameters.x * Screen.width, parameters.y * Screen.height)
+            var gameSize = GameViewRenderSize();
+            var point = parameters.normalized
+                ? new Vector2(parameters.x * gameSize.x, parameters.y * gameSize.y)
                 : new Vector2(parameters.x, parameters.y);
-            if (position.x < 0 || position.y < 0 || position.x > Screen.width || position.y > Screen.height)
+            if (point.x < 0 || point.y < 0 || point.x > gameSize.x || point.y > gameSize.y)
             {
                 response.success = false;
-                response.error = new CommandError { message = $"point ({position.x},{position.y}) is outside the game screen {Screen.width}x{Screen.height}." };
+                response.error = new CommandError { message = $"point ({point.x},{point.y}) is outside the game screen {gameSize.x}x{gameSize.y}." };
                 return;
             }
 
             activeGameMouse = new GameMouseRequest
             {
                 response = response,
-                position = position,
+                gamePoint = point,
                 button = parameters.button,
                 action = action,
                 holdFrames = Math.Max(1, parameters.holdFrames),
                 deadline = EditorApplication.timeSinceStartup + 8.0
             };
+
+            // 게임이 읽을 좌표는 Input 규약대로 왼쪽 아래 원점이다.
+            hookedMousePosition = new Vector3(point.x, gameSize.y - point.y, 0f);
+            hookedButton = parameters.button;
+            hookedHeld = false;
+            hookedDown = false;
+            hookedUp = false;
+            var problem = InstallGameMouseHooks();
+            if (problem != null)
+            {
+                activeGameMouse = null;
+                response.success = false;
+                response.error = new CommandError { message = problem };
+                return;
+            }
+
             EditorApplication.update += GameMouseUpdate;
             response.deferred = true;
         }
@@ -2401,19 +2526,6 @@ namespace ProjectMQaMcp.Editor
             {
                 activeGameMouse.requestPath = requestPath;
             }
-        }
-
-        private static void QueueGameMouseEvent(GameMouseRequest request, EventType type)
-        {
-            var evt = new Event
-            {
-                type = type,
-                mousePosition = request.position,
-                button = request.button,
-                clickCount = type == EventType.MouseDown || type == EventType.MouseUp ? 1 : 0,
-                displayIndex = 0
-            };
-            queueGameViewInputEvent.Invoke(null, new object[] { evt });
         }
 
         private static void GameMouseUpdate()
@@ -2448,33 +2560,36 @@ namespace ProjectMQaMcp.Editor
             switch (request.stage)
             {
                 case 0:
-                    QueueGameMouseEvent(request, EventType.MouseMove);
-                    request.stage = 1;
+                    // 바꿔치기가 실제로 먹었는지 — 이 값이 hookedMousePosition 과 같아야 한다.
+                    request.inputMouseSeen = Input.mousePosition;
                     if (request.action == "move")
                     {
-                        request.stage = 3;
-                    }
-                    break;
-                case 1:
-                    request.inputMouseAfterMove = Input.mousePosition;
-                    if (request.action == "up")
-                    {
-                        QueueGameMouseEvent(request, EventType.MouseUp);
-                        request.stage = 3;
+                        request.stage = 4;
                         break;
                     }
-                    QueueGameMouseEvent(request, EventType.MouseDown);
-                    request.stage = request.action == "down" ? 3 : 2;
+                    hookedHeld = true;
+                    hookedDown = true;
+                    request.heldFrames = 1;
+                    request.stage = 1;
                     break;
-                case 2:
-                    request.heldFrames++;
+                case 1:
+                    hookedDown = false;
                     if (request.heldFrames >= request.holdFrames)
                     {
-                        QueueGameMouseEvent(request, EventType.MouseUp);
+                        hookedHeld = false;
+                        hookedUp = true;
                         request.stage = 3;
+                    }
+                    else
+                    {
+                        request.heldFrames++;
                     }
                     break;
                 case 3:
+                    hookedUp = false;
+                    request.stage = 4;
+                    break;
+                case 4:
                     FinishGameMouse(request, null);
                     break;
             }
@@ -2484,21 +2599,21 @@ namespace ProjectMQaMcp.Editor
         {
             EditorApplication.update -= GameMouseUpdate;
             activeGameMouse = null;
-
-            // 중간에 끊겼는데 눌린 채로 남으면 게임이 드래그로 읽는다. 눌림을 보냈다면 뗌을 보낸다.
-            if (error != null && request.stage == 2 && Application.isPlaying)
-            {
-                QueueGameMouseEvent(request, EventType.MouseUp);
-            }
+            // 어떤 경로로 끝나든 Input 함수를 원래대로 돌려놓는다. 남기면 에디터의 실제 마우스 입력이 죽는다.
+            RemoveGameMouseHooks();
+            hookedHeld = false;
+            hookedDown = false;
+            hookedUp = false;
 
             var response = request.response;
             response.AddOutput("action", request.action);
             response.AddOutput("button", request.button.ToString());
-            response.AddOutput("gameX", request.position.x.ToString(System.Globalization.CultureInfo.InvariantCulture));
-            response.AddOutput("gameY", request.position.y.ToString(System.Globalization.CultureInfo.InvariantCulture));
-            response.AddOutput("screen", $"{Screen.width}x{Screen.height}");
-            // 레거시 Input 이 실제로 받은 좌표(왼쪽 아래 원점). gameY 와 Screen.height - y 가 맞아야 정상.
-            response.AddOutput("inputMousePosition", $"{request.inputMouseAfterMove.x},{request.inputMouseAfterMove.y}");
+            response.AddOutput("gameX", request.gamePoint.x.ToString(System.Globalization.CultureInfo.InvariantCulture));
+            response.AddOutput("gameY", request.gamePoint.y.ToString(System.Globalization.CultureInfo.InvariantCulture));
+            response.AddOutput("expectedInputMouse", $"{hookedMousePosition.x},{hookedMousePosition.y}");
+            response.AddOutput("inputMouseSeen", $"{request.inputMouseSeen.x},{request.inputMouseSeen.y}");
+            response.AddOutput("inputMouseAfterRestore", $"{Input.mousePosition.x},{Input.mousePosition.y}");
+            response.AddOutput("heldFrames", request.heldFrames.ToString());
             response.AddOutput("gameFrames", request.gameFrames.ToString());
             response.AddOutput("stageReached", request.stage.ToString());
             response.success = error == null;
