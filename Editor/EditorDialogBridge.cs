@@ -391,6 +391,18 @@ namespace ProjectMQaMcp.Editor
             return Contains(label, "cancel") || Contains(label, "no") || Contains(label, "취소");
         }
 
+        private static readonly string[] BusyTitles = { "Hold on", "Importing", "Compiling", "Reloading", "Building", "Progress" };
+
+        private static bool IsBusyTitle(string title)
+        {
+            if (string.IsNullOrEmpty(title)) return false;
+            foreach (var busy in BusyTitles)
+            {
+                if (title.StartsWith(busy, StringComparison.OrdinalIgnoreCase)) return true;
+            }
+            return false;
+        }
+
         private static bool Contains(string haystack, string needle)
         {
             if (string.IsNullOrEmpty(haystack) || string.IsNullOrEmpty(needle)) return false;
@@ -471,7 +483,9 @@ namespace ProjectMQaMcp.Editor
                     if (!isNativeDialog)
                     {
                         if (hwnd == main) return true;
-                        if (string.IsNullOrEmpty(titleFilter)) return true;
+                        // With no filter, only Unity's own busy/progress windows count - those are the
+                        // ones that freeze the editor (e.g. "Hold on" while a long Repaint runs).
+                        if (string.IsNullOrEmpty(titleFilter) && !IsBusyTitle(title)) return true;
                     }
 
                     if (!string.IsNullOrEmpty(titleFilter) && !Contains(title, titleFilter)) return true;

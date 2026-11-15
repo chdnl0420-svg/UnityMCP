@@ -1,4 +1,5 @@
 import { join } from 'node:path';
+import { readFile } from 'node:fs/promises';
 import { z } from 'zod';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { resolveProjectConfig } from './config.js';
@@ -413,18 +414,28 @@ export function registerEditorTools(server: McpServer): void {
     'Reimports changed assets and recompiles scripts in the open editor, then reports the compiler\'s own verdict. '
     + 'This is a real compile gate: errorCount comes from Unity\'s CompilerMessages, so "0 errors" means the assemblies built. '
     + 'By default it waits for compilation to finish (polling across the domain reload that a recompile triggers) and returns the errors and warnings with file and line. '
-    + 'Set waitForCompile false to fire and forget, then poll unity_editor_compile_status yourself.',
+    + 'Set waitForCompile false to fire and forget, then poll unity_editor_compile_status yourself. '
+    + 'If a dialog (a modal box or Unity\'s "Hold on" busy window) is on screen before or after the refresh, or the editor stops answering, it fails at once and returns a screenshot of the editor with the dialog in it.',
     {
       ...commonShape,
       forceRecompile: z.boolean().optional().describe('Also request a script recompilation even when no asset changed. Off by default.'),
       waitForCompile: z.boolean().optional().describe('Wait until compilation finishes (default true).'),
     },
     async (params) => {
+      const before = await blockingDialog(params);
+      if (before) {
+        return before;
+      }
+
       const requested = await runBridge(params, 'editor_refresh', {
         forceRecompile: (params.forceRecompile ?? false) ? 'true' : 'false',
       });
 
-      if (!requested.success || (params.waitForCompile ?? true) === false) {
+      if (!requested.success) {
+        // A timeout here usually means the main thread is frozen behind a dialog.
+        return (await blockingDialog(params, true)) ?? toToolResult(requested);
+      }
+      if ((params.waitForCompile ?? true) === false) {
         return toToolResult(requested);
       }
 
@@ -442,6 +453,46 @@ export function registerEditorTools(server: McpServer): void {
         success: requested.success && !status.timedOut && Number(status.outputs?.errorCount ?? 0) === 0,
       });
     });
+
+  /**
+   * Looks for a dialog that is freezing the editor. Both commands run off the main thread, so they answer
+   * even while the dialog holds it. Returns a failed tool result with the screenshot attached, or undefined.
+   * With alwaysCapture the editor already stopped answering, so a picture is taken even if no dialog is listed.
+   */
+  async function blockingDialog(params: any, alwaysCapture = false): Promise<any | undefined> {
+    const listed = await runBridge(params, 'editor_dialog_list', {});
+    const count = Number(listed.outputs?.count ?? 0);
+    if (count === 0 && !alwaysCapture) {
+      return undefined;
+    }
+
+    const capture = await runBridge(params, 'editor_dialog_capture', { includePopups: 'true' });
+    const pngPath = capture.outputs?.outputPath as string | undefined;
+    const result = toToolResult({
+      command: 'editor_refresh',
+      success: false,
+      outputs: {
+        dialogCount: count,
+        dialogs: listed.outputs?.dialogs ?? [],
+        screenshot: pngPath ?? '',
+      },
+      error: {
+        message: count > 0
+          ? 'A dialog is open in the editor - refresh was not run (or did not finish). See the screenshot.'
+          : 'The editor did not answer the refresh. See the screenshot for what it is doing.',
+      },
+    });
+    if (pngPath && capture.success) {
+      try {
+        const data = await readFile(pngPath);
+        result.content.push({ type: 'image', data: data.toString('base64'), mimeType: 'image/png' });
+      } catch {
+        // The path is still in the text; the image is a convenience.
+      }
+    }
+    result.isError = true;
+    return result;
+  }
 
   server.tool('unity_editor_compile_status',
     'Reads the last compilation result recorded in the editor: status, whether it is compiling right now, error and warning counts, the assemblies that rebuilt, and each compiler message with file, line and column. '

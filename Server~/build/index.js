@@ -21101,7 +21101,7 @@ var StdioServerTransport = class {
 };
 
 // src/tools.ts
-import { readFile as readFile3 } from "node:fs/promises";
+import { readFile as readFile4 } from "node:fs/promises";
 import { join as join6 } from "node:path";
 import { createConnection } from "node:net";
 
@@ -21957,6 +21957,7 @@ function finishFailure(result, startedAt, now, message) {
 
 // src/editorTools.ts
 import { join as join5 } from "node:path";
+import { readFile as readFile3 } from "node:fs/promises";
 var baseConfigShape = {
   unityPath: external_exports.string().optional(),
   projectPath: external_exports.string().optional(),
@@ -22318,17 +22319,24 @@ function registerEditorTools(server2) {
   );
   server2.tool(
     "unity_editor_refresh",
-    `Reimports changed assets and recompiles scripts in the open editor, then reports the compiler's own verdict. This is a real compile gate: errorCount comes from Unity's CompilerMessages, so "0 errors" means the assemblies built. By default it waits for compilation to finish (polling across the domain reload that a recompile triggers) and returns the errors and warnings with file and line. Set waitForCompile false to fire and forget, then poll unity_editor_compile_status yourself.`,
+    `Reimports changed assets and recompiles scripts in the open editor, then reports the compiler's own verdict. This is a real compile gate: errorCount comes from Unity's CompilerMessages, so "0 errors" means the assemblies built. By default it waits for compilation to finish (polling across the domain reload that a recompile triggers) and returns the errors and warnings with file and line. Set waitForCompile false to fire and forget, then poll unity_editor_compile_status yourself. If a dialog (a modal box or Unity's "Hold on" busy window) is on screen before or after the refresh, or the editor stops answering, it fails at once and returns a screenshot of the editor with the dialog in it.`,
     {
       ...commonShape,
       forceRecompile: external_exports.boolean().optional().describe("Also request a script recompilation even when no asset changed. Off by default."),
       waitForCompile: external_exports.boolean().optional().describe("Wait until compilation finishes (default true).")
     },
     async (params) => {
+      const before = await blockingDialog(params);
+      if (before) {
+        return before;
+      }
       const requested = await runBridge(params, "editor_refresh", {
         forceRecompile: params.forceRecompile ?? false ? "true" : "false"
       });
-      if (!requested.success || (params.waitForCompile ?? true) === false) {
+      if (!requested.success) {
+        return await blockingDialog(params, true) ?? toToolResult(requested);
+      }
+      if ((params.waitForCompile ?? true) === false) {
         return toToolResult(requested);
       }
       const status = await waitForCompile(params, COMPILE_WAIT_MS);
@@ -22346,6 +22354,36 @@ function registerEditorTools(server2) {
       });
     }
   );
+  async function blockingDialog(params, alwaysCapture = false) {
+    const listed = await runBridge(params, "editor_dialog_list", {});
+    const count = Number(listed.outputs?.count ?? 0);
+    if (count === 0 && !alwaysCapture) {
+      return void 0;
+    }
+    const capture = await runBridge(params, "editor_dialog_capture", { includePopups: "true" });
+    const pngPath = capture.outputs?.outputPath;
+    const result = toToolResult({
+      command: "editor_refresh",
+      success: false,
+      outputs: {
+        dialogCount: count,
+        dialogs: listed.outputs?.dialogs ?? [],
+        screenshot: pngPath ?? ""
+      },
+      error: {
+        message: count > 0 ? "A dialog is open in the editor - refresh was not run (or did not finish). See the screenshot." : "The editor did not answer the refresh. See the screenshot for what it is doing."
+      }
+    });
+    if (pngPath && capture.success) {
+      try {
+        const data = await readFile3(pngPath);
+        result.content.push({ type: "image", data: data.toString("base64"), mimeType: "image/png" });
+      } catch {
+      }
+    }
+    result.isError = true;
+    return result;
+  }
   server2.tool(
     "unity_editor_compile_status",
     "Reads the last compilation result recorded in the editor: status, whether it is compiling right now, error and warning counts, the assemblies that rebuilt, and each compiler message with file, line and column. The result is stored on disk by the package, so it survives the domain reload a recompile causes.",
@@ -23367,7 +23405,7 @@ async function unityReadTextFile(params) {
   const maxBytes = params.maxBytes ?? 256 * 1024;
   const size = await fileSize(params.path);
   const truncated = size > maxBytes;
-  const text = truncated ? await readTail(params.path, maxBytes) : await readFile3(params.path, "utf8");
+  const text = truncated ? await readTail(params.path, maxBytes) : await readFile4(params.path, "utf8");
   return {
     success: true,
     path: params.path,
@@ -23405,7 +23443,7 @@ function defaultEditorLogPath() {
 }
 async function readMcpSettings(filePath) {
   try {
-    return JSON.parse(await readFile3(filePath, "utf8"));
+    return JSON.parse(await readFile4(filePath, "utf8"));
   } catch {
     return void 0;
   }
