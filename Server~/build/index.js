@@ -21101,8 +21101,8 @@ var StdioServerTransport = class {
 };
 
 // src/tools.ts
-import { readFile as readFile4 } from "node:fs/promises";
-import { join as join6 } from "node:path";
+import { readFile as readFile5 } from "node:fs/promises";
+import { join as join7 } from "node:path";
 import { createConnection } from "node:net";
 
 // src/config.ts
@@ -21478,11 +21478,328 @@ async function killProcess(pid) {
   process.kill(pid, "SIGTERM");
 }
 
+// src/editorClose.ts
+import { execFile as execFile2 } from "node:child_process";
+import { readFile as readFile3 } from "node:fs/promises";
+import { join as join4, win32 } from "node:path";
+import { promisify as promisify2 } from "node:util";
+var execFileAsync2 = promisify2(execFile2);
+var DEFAULT_CLOSE_TIMEOUT_MS = 3e4;
+var POLL_INTERVAL_MS = 500;
+var WINDOW_CHECK_INTERVAL_MS = 2e3;
+var POWERSHELL_TIMEOUT_MS = 2e4;
+var WIN32_DIALOG_CLASS = "#32770";
+function parseProjectPathArg(commandLine) {
+  const match = /(?:^|\s)"?-projectpath"?\s+(?:"([^"]+)"|(\S+))/i.exec(commandLine);
+  const value = match?.[1] ?? match?.[2];
+  return value ? value : void 0;
+}
+function normalizeProjectPath(projectPath) {
+  return win32.normalize(projectPath.replace(/\//g, "\\")).replace(/\\+$/, "").toLowerCase();
+}
+function isBatchModeCommandLine(commandLine) {
+  return /(?:^|\s)"?-batchmode"?(?:\s|$)/i.test(commandLine);
+}
+function summarizeUnityProcess(row) {
+  const projectPath = parseProjectPathArg(row.commandLine);
+  if (isBatchModeCommandLine(row.commandLine)) {
+    return { pid: row.pid, kind: "batch", projectPath };
+  }
+  return { pid: row.pid, kind: projectPath ? "editor" : "other", projectPath };
+}
+function selectCloseTarget(rows, projectPath, editorInstancePid) {
+  const target = normalizeProjectPath(projectPath);
+  const summaries = rows.map(summarizeUnityProcess);
+  const matches = summaries.filter((item) => item.kind === "editor" && item.projectPath !== void 0 && normalizeProjectPath(item.projectPath) === target);
+  if (matches.length > 1) {
+    return {
+      ok: false,
+      error: `More than one Unity editor is open for ${projectPath}. Pass pid to choose one.`,
+      candidates: matches
+    };
+  }
+  const instance = editorInstancePid !== void 0 ? summaries.find((item) => item.pid === editorInstancePid) : void 0;
+  if (matches.length === 1) {
+    const matchedBy = ["commandLine"];
+    if (instance && instance.pid === matches[0].pid) {
+      matchedBy.push("editorInstance");
+    }
+    return { ok: true, pid: matches[0].pid, projectPath: matches[0].projectPath, matchedBy };
+  }
+  if (instance && instance.kind !== "batch" && instance.projectPath === void 0) {
+    return { ok: true, pid: instance.pid, projectPath, matchedBy: ["editorInstance"] };
+  }
+  return {
+    ok: false,
+    error: `No open Unity editor found for ${projectPath}.`,
+    candidates: summaries.filter((item) => item.kind !== "other")
+  };
+}
+function findModalDialogs(windows, mainHandle) {
+  const mainWindow = windows.find((item) => item.handle === mainHandle);
+  const mainBlocked = mainWindow !== void 0 && !mainWindow.enabled;
+  return windows.filter((item) => item.className === WIN32_DIALOG_CLASS || mainBlocked && item.enabled && item.handle !== mainHandle).map((item) => ({ title: item.title, className: item.className }));
+}
+async function closeUnityEditor(options) {
+  if (process.platform !== "win32") {
+    return { success: false, error: "unity_editor_close supports Windows only." };
+  }
+  let rows;
+  try {
+    rows = await listUnityProcesses();
+  } catch (error2) {
+    return { success: false, error: `Could not list Unity processes: ${describeError(error2)}` };
+  }
+  const selection = options.pid !== void 0 ? selectByPid(rows, options) : selectCloseTarget(rows, options.projectPath, await readEditorInstancePid(options.projectPath));
+  if (!selection.ok) {
+    return {
+      success: false,
+      error: selection.error,
+      candidates: selection.candidates,
+      remainingUnityProcesses: rows.map(summarizeUnityProcess)
+    };
+  }
+  const targetPid = selection.pid;
+  const startedAt = Date.now();
+  let modalDialogs = [];
+  let windowCheckError;
+  const mainWindow = await requestWindowClose(targetPid, false);
+  try {
+    modalDialogs = findModalDialogs(await listProcessWindows(targetPid), mainWindow.mainHandle);
+  } catch (error2) {
+    windowCheckError = describeError(error2);
+  }
+  const request = modalDialogs.length === 0 && mainWindow.error === void 0 ? await requestWindowClose(targetPid, true) : mainWindow;
+  let closed = await waitForExit(targetPid, startedAt, options.timeoutMs, request.closeRequestSent, async () => {
+    try {
+      const found = findModalDialogs(await listProcessWindows(targetPid), request.mainHandle);
+      if (found.length > 0) {
+        modalDialogs = found;
+      }
+    } catch (error2) {
+      windowCheckError = describeError(error2);
+    }
+  });
+  const timedOut = request.closeRequestSent && !closed;
+  let forced = false;
+  let killedChildren = [];
+  if (!closed && options.force) {
+    killedChildren = await forceKill(targetPid);
+    forced = true;
+    closed = await waitForExit(targetPid, Date.now(), 5e3, true);
+  }
+  const elapsedMs = Date.now() - startedAt;
+  const remaining = await listUnityProcesses().then(
+    (items) => items.map(summarizeUnityProcess),
+    (error2) => `Could not list Unity processes: ${describeError(error2)}`
+  );
+  return {
+    success: closed,
+    targetPid,
+    projectPath: selection.projectPath,
+    matchedBy: selection.matchedBy,
+    windowTitle: request.windowTitle,
+    closeRequestSent: request.closeRequestSent,
+    closeRequestError: request.error,
+    closed,
+    timedOut,
+    forced,
+    killedChildren,
+    elapsedMs,
+    modalDialogs,
+    windowCheckError,
+    remainingUnityProcesses: remaining,
+    note: closed ? void 0 : buildNotClosedNote(request.closeRequestSent, modalDialogs, options.force)
+  };
+}
+function selectByPid(rows, options) {
+  const row = rows.find((item) => item.pid === options.pid);
+  if (!row) {
+    return { ok: false, error: `pid ${options.pid} is not a running Unity.exe process.` };
+  }
+  const summary = summarizeUnityProcess(row);
+  if (summary.kind !== "editor") {
+    return { ok: false, error: `pid ${options.pid} is not an interactive Unity editor (kind=${summary.kind}).` };
+  }
+  if (options.projectPathExplicit && normalizeProjectPath(summary.projectPath ?? "") !== normalizeProjectPath(options.projectPath)) {
+    return {
+      ok: false,
+      error: `pid ${options.pid} opened ${summary.projectPath}, not ${options.projectPath}.`
+    };
+  }
+  return { ok: true, pid: summary.pid, projectPath: summary.projectPath, matchedBy: ["pid"] };
+}
+function buildNotClosedNote(closeRequestSent, modalDialogs, force) {
+  if (modalDialogs.length > 0 && !force) {
+    return closeRequestSent ? "A dialog is blocking the close (for example a save prompt). Answer it, or pass force=true to kill without saving." : "A dialog is open, so no close request was sent (it would only dismiss the dialog). Answer it, or pass force=true to kill.";
+  }
+  if (!closeRequestSent) {
+    return force ? "The editor had no main window to close and force kill did not end it." : "The editor has no main window yet (still loading?). Retry later or pass force=true.";
+  }
+  return force ? "The editor did not exit even after force kill." : "The editor did not exit within timeoutMs. Retry with a longer timeoutMs, or pass force=true.";
+}
+async function waitForExit(pid, startedAt, timeoutMs, shouldWait, onWindowCheck) {
+  if (!isAlive(pid)) {
+    return true;
+  }
+  if (!shouldWait) {
+    return false;
+  }
+  let lastWindowCheck = Date.now();
+  while (Date.now() - startedAt < timeoutMs) {
+    await delay2(POLL_INTERVAL_MS);
+    if (!isAlive(pid)) {
+      return true;
+    }
+    if (onWindowCheck && Date.now() - lastWindowCheck >= WINDOW_CHECK_INTERVAL_MS) {
+      lastWindowCheck = Date.now();
+      await onWindowCheck();
+    }
+  }
+  return !isAlive(pid);
+}
+function isAlive(pid) {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error2) {
+    return error2?.code === "EPERM";
+  }
+}
+async function forceKill(pid) {
+  const children = await listUnityProcesses().then(
+    (items) => items.filter((item) => item.parentPid === pid).map((item) => item.pid),
+    () => []
+  );
+  try {
+    process.kill(pid);
+  } catch {
+  }
+  for (const child of children) {
+    try {
+      process.kill(child);
+    } catch {
+    }
+  }
+  return children;
+}
+async function readEditorInstancePid(projectPath) {
+  try {
+    const text = await readFile3(join4(projectPath, "Library", "EditorInstance.json"), "utf8");
+    const pid = Number(JSON.parse(text).process_id);
+    return Number.isInteger(pid) && pid > 0 ? pid : void 0;
+  } catch {
+    return void 0;
+  }
+}
+async function listUnityProcesses() {
+  const script = [
+    `$rows = @(Get-CimInstance Win32_Process -Filter "name='Unity.exe'" | Select-Object ProcessId,ParentProcessId,CommandLine)`,
+    "ConvertTo-Json -InputObject $rows -Depth 3 -Compress"
+  ].join("\n");
+  const parsed = await runPowerShellJson(script);
+  const rows = Array.isArray(parsed) ? parsed : [];
+  return rows.map((row) => ({
+    pid: Number(row.ProcessId) || 0,
+    parentPid: Number(row.ParentProcessId) || 0,
+    commandLine: String(row.CommandLine || "")
+  })).filter((row) => row.pid > 0);
+}
+async function requestWindowClose(pid, send) {
+  const script = [
+    `$p = Get-Process -Id ${pid} -ErrorAction Stop`,
+    "$handle = [string]$p.MainWindowHandle.ToInt64()",
+    "$title = $p.MainWindowTitle",
+    "$sent = $false",
+    `if (${send ? "$true" : "$false"} -and $handle -ne '0') { $sent = $p.CloseMainWindow() }`,
+    "ConvertTo-Json -InputObject @{ sent = $sent; title = $title; handle = $handle } -Compress"
+  ].join("\n");
+  let parsed;
+  try {
+    parsed = await runPowerShellJson(script);
+  } catch (error2) {
+    return { closeRequestSent: false, windowTitle: "", error: describeError(error2) };
+  }
+  const handle = parsed?.handle && parsed.handle !== "0" ? parsed.handle : void 0;
+  return {
+    closeRequestSent: parsed?.sent === true,
+    windowTitle: parsed?.title ?? "",
+    mainHandle: handle
+  };
+}
+async function listProcessWindows(pid) {
+  const script = `
+Add-Type -TypeDefinition @'
+using System;
+using System.Collections.Generic;
+using System.Runtime.InteropServices;
+using System.Text;
+public static class Nx3UnityWindows {
+  private delegate bool EnumProc(IntPtr handle, IntPtr param);
+  [DllImport("user32.dll")] private static extern bool EnumWindows(EnumProc callback, IntPtr param);
+  [DllImport("user32.dll")] private static extern uint GetWindowThreadProcessId(IntPtr handle, out uint pid);
+  [DllImport("user32.dll")] private static extern bool IsWindowVisible(IntPtr handle);
+  [DllImport("user32.dll")] private static extern bool IsWindowEnabled(IntPtr handle);
+  [DllImport("user32.dll", CharSet = CharSet.Unicode)] private static extern int GetWindowText(IntPtr handle, StringBuilder text, int max);
+  [DllImport("user32.dll", CharSet = CharSet.Unicode)] private static extern int GetClassName(IntPtr handle, StringBuilder text, int max);
+  public static List<object> List(uint target) {
+    var rows = new List<object>();
+    EnumWindows((handle, param) => {
+      uint owner;
+      GetWindowThreadProcessId(handle, out owner);
+      if (owner != target || !IsWindowVisible(handle)) { return true; }
+      var title = new StringBuilder(512);
+      var className = new StringBuilder(256);
+      GetWindowText(handle, title, title.Capacity);
+      GetClassName(handle, className, className.Capacity);
+      rows.Add(new Dictionary<string, object> {
+        { "handle", handle.ToInt64().ToString() },
+        { "className", className.ToString() },
+        { "title", title.ToString() },
+        { "enabled", IsWindowEnabled(handle) },
+      });
+      return true;
+    }, IntPtr.Zero);
+    return rows;
+  }
+}
+'@
+$rows = @([Nx3UnityWindows]::List(${pid}))
+ConvertTo-Json -InputObject $rows -Depth 3 -Compress
+`;
+  const parsed = await runPowerShellJson(script);
+  const rows = Array.isArray(parsed) ? parsed : [];
+  return rows.map((row) => ({
+    handle: String(row.handle ?? ""),
+    className: String(row.className ?? ""),
+    title: String(row.title ?? ""),
+    enabled: row.enabled === true
+  }));
+}
+async function runPowerShellJson(script) {
+  const fullScript = `[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+${script}`;
+  const encoded = Buffer.from(fullScript, "utf16le").toString("base64");
+  const { stdout } = await execFileAsync2("powershell.exe", ["-NoProfile", "-NonInteractive", "-EncodedCommand", encoded], {
+    windowsHide: true,
+    timeout: POWERSHELL_TIMEOUT_MS,
+    encoding: "utf8"
+  });
+  const text = stdout.trim();
+  return text.length === 0 ? void 0 : JSON.parse(text);
+}
+function describeError(error2) {
+  return error2 instanceof Error ? error2.message : String(error2);
+}
+function delay2(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 // src/playMode.ts
 async function setPlayModeAndWait(options) {
   const timeoutMs = clampTimeout(options.timeoutMs);
   const now = options.now ?? (() => Date.now());
-  const delay2 = options.delay ?? defaultDelay;
+  const delay3 = options.delay ?? defaultDelay;
   const pollIntervalMs = options.pollIntervalMs ?? 500;
   const commandTimeoutMs = options.commandTimeoutMs ?? 1500;
   const transitionCommand = options.targetPlaying ? "enter_play_mode" : "exit_play_mode";
@@ -21520,7 +21837,7 @@ async function setPlayModeAndWait(options) {
         lastStatus
       };
     }
-    await delay2(pollIntervalMs);
+    await delay3(pollIntervalMs);
   }
   return {
     success: false,
@@ -21672,7 +21989,7 @@ async function clickUiTextAndWait(options) {
 async function waitForUiText(options) {
   const timeoutMs = clampTimeout(options.timeoutMs);
   const now = options.now ?? (() => Date.now());
-  const delay2 = options.delay ?? defaultDelay2;
+  const delay3 = options.delay ?? defaultDelay2;
   const exact = options.exact ?? false;
   const pollIntervalMs = options.pollIntervalMs ?? 500;
   const commandTimeoutMs = options.commandTimeoutMs ?? 1500;
@@ -21712,7 +22029,7 @@ async function waitForUiText(options) {
         lastResponse
       };
     }
-    await delay2(pollIntervalMs);
+    await delay3(pollIntervalMs);
   }
   return {
     success: false,
@@ -21748,7 +22065,7 @@ function defaultDelay2(ms) {
 }
 
 // src/qaFlow.ts
-import { join as join4 } from "node:path";
+import { join as join5 } from "node:path";
 
 // src/screenshot.ts
 function verifyScreenshotResponse(options) {
@@ -21815,8 +22132,8 @@ async function runUiTextQaFlow(options) {
   const getFileSize = options.getFileSize ?? fileSize;
   const startedAt = now();
   const steps = [];
-  const beforePath = join4(options.outputRoot, "before.png");
-  const afterPath = join4(options.outputRoot, "after.png");
+  const beforePath = join5(options.outputRoot, "before.png");
+  const afterPath = join5(options.outputRoot, "after.png");
   const result = {
     success: false,
     elapsedMs: 0,
@@ -21956,8 +22273,8 @@ function finishFailure(result, startedAt, now, message) {
 }
 
 // src/editorTools.ts
-import { join as join5 } from "node:path";
-import { readFile as readFile3 } from "node:fs/promises";
+import { join as join6 } from "node:path";
+import { readFile as readFile4 } from "node:fs/promises";
 var baseConfigShape = {
   unityPath: external_exports.string().optional(),
   projectPath: external_exports.string().optional(),
@@ -22074,7 +22391,7 @@ function registerEditorTools(server2) {
     },
     async (params) => {
       const config2 = resolveProjectConfig(params);
-      const outputPath = params.outputPath || join5(config2.commandRoot, "screenshots", `editor-window-${Date.now()}.png`);
+      const outputPath = params.outputPath || join6(config2.commandRoot, "screenshots", `editor-window-${Date.now()}.png`);
       const result = await runBridge(params, "editor_window_screenshot", {
         outputPath,
         noFlipY: params.noFlipY ?? false,
@@ -22106,7 +22423,7 @@ function registerEditorTools(server2) {
     },
     async (params) => {
       const config2 = resolveProjectConfig(params);
-      const outputPath = params.outputPath || join5(config2.commandRoot, "screenshots", `editor-window-capture-${Date.now()}.png`);
+      const outputPath = params.outputPath || join6(config2.commandRoot, "screenshots", `editor-window-capture-${Date.now()}.png`);
       const result = await runBridge(params, "editor_window_capture", {
         outputPath,
         includeChrome: params.includeChrome ?? false,
@@ -22218,7 +22535,7 @@ function registerEditorTools(server2) {
     },
     async (params) => {
       const config2 = resolveProjectConfig(params);
-      const framesDir = params.framesDir || join5(config2.commandRoot, "screenshots", `drag-${Date.now()}`);
+      const framesDir = params.framesDir || join6(config2.commandRoot, "screenshots", `drag-${Date.now()}`);
       const result = await runBridge(params, "editor_drag_capture", {
         ...dragParameters(params),
         framesDir,
@@ -22376,7 +22693,7 @@ function registerEditorTools(server2) {
     });
     if (pngPath && capture.success) {
       try {
-        const data = await readFile3(pngPath);
+        const data = await readFile4(pngPath);
         result.content.push({ type: "image", data: data.toString("base64"), mimeType: "image/png" });
       } catch {
       }
@@ -22922,6 +23239,12 @@ function registerTools(server2) {
     kill: external_exports.boolean().optional(),
     includeUnity: external_exports.boolean().optional()
   }, async (params) => toToolResult2(await unityKillStale(params)));
+  server2.tool("unity_editor_close", "Closes exactly one Unity editor: the one that opened projectPath (exact -projectPath match, or Library/EditorInstance.json), or the given pid. Editors of other projects are never touched. Sends WM_CLOSE like the window X button, reports a blocking dialog such as a save prompt, and kills only when force=true after timeoutMs. Runs in the MCP server, so it works when the in-editor bridge is down (safe mode, compile errors).", {
+    projectPath: external_exports.string().optional(),
+    pid: external_exports.number().int().positive().optional(),
+    timeoutMs: external_exports.number().int().positive().max(3e5).optional(),
+    force: external_exports.boolean().optional()
+  }, async (params) => toToolResult2(await unityEditorClose(params)));
   server2.tool("unity_inspect_object", "Inspects a GameObject by hierarchy path or name: components, active state, transform, NGUI label/sprite/input, and collider bounds.", {
     ...baseConfigShape2,
     targetPath: external_exports.string().optional(),
@@ -23059,7 +23382,7 @@ async function unityStatus(params) {
   const config2 = resolveProjectConfig(params);
   const processes = await listUnityRelatedProcesses();
   const staleCandidates = findStaleCandidates(processes, config2.projectPath);
-  const mcpSettingsPath = join6(config2.projectPath, "ProjectSettings", "McpUnitySettings.json");
+  const mcpSettingsPath = join7(config2.projectPath, "ProjectSettings", "McpUnitySettings.json");
   const mcpSettings = await readMcpSettings(mcpSettingsPath);
   const portOpen = mcpSettings?.Port ? await isPortOpen("127.0.0.1", mcpSettings.Port, 500) : void 0;
   const editorLogPath = defaultEditorLogPath();
@@ -23071,10 +23394,10 @@ async function unityStatus(params) {
     projectExists: await pathExists(config2.projectPath),
     commandRoot: config2.commandRoot,
     commandRootExists: await pathExists(config2.commandRoot),
-    lockfilePath: join6(config2.projectPath, "Temp", "UnityLockfile"),
-    lockfileExists: await pathExists(join6(config2.projectPath, "Temp", "UnityLockfile")),
-    editorInstancePath: join6(config2.projectPath, "Library", "EditorInstance.json"),
-    editorInstanceExists: await pathExists(join6(config2.projectPath, "Library", "EditorInstance.json")),
+    lockfilePath: join7(config2.projectPath, "Temp", "UnityLockfile"),
+    lockfileExists: await pathExists(join7(config2.projectPath, "Temp", "UnityLockfile")),
+    editorInstancePath: join7(config2.projectPath, "Library", "EditorInstance.json"),
+    editorInstanceExists: await pathExists(join7(config2.projectPath, "Library", "EditorInstance.json")),
     editorLogPath,
     editorLogExists: await pathExists(editorLogPath),
     legacyMcpUnity: {
@@ -23138,7 +23461,7 @@ async function unityExecuteEditorCommand(params) {
 }
 async function unityCaptureScreenshot(params) {
   const config2 = resolveProjectConfig(params);
-  const outputPath = params.outputPath || join6(config2.commandRoot, "screenshots", `screenshot-${Date.now()}.png`);
+  const outputPath = params.outputPath || join7(config2.commandRoot, "screenshots", `screenshot-${Date.now()}.png`);
   const response = await executeEditorCommand({
     unityPath: config2.unityPath,
     projectPath: config2.projectPath,
@@ -23218,7 +23541,7 @@ async function unityClickUiTextAndWait(params) {
 }
 async function unityRunUiTextQaFlow(params) {
   const config2 = resolveProjectConfig(params);
-  const outputRoot = params.outputRoot || join6(config2.projectPath, ".qa", `nx3-mcp-flow-${Date.now()}`, "screenshots");
+  const outputRoot = params.outputRoot || join7(config2.projectPath, ".qa", `nx3-mcp-flow-${Date.now()}`, "screenshots");
   return runUiTextQaFlow({
     initialText: params.initialText,
     clickText: params.clickText,
@@ -23304,7 +23627,7 @@ async function unitySetPlayMode(params, targetPlaying) {
 }
 async function unityStartFrameCapture(params) {
   const config2 = resolveProjectConfig(params);
-  const framesDir = params.framesDir || join6(config2.commandRoot, "recordings", `rec-${Date.now()}`);
+  const framesDir = params.framesDir || join7(config2.commandRoot, "recordings", `rec-${Date.now()}`);
   const response = await executeEditorCommand({
     unityPath: config2.unityPath,
     projectPath: config2.projectPath,
@@ -23382,6 +23705,17 @@ async function unityKillStale(params) {
     candidates
   };
 }
+async function unityEditorClose(params) {
+  const projectPathExplicit = typeof params.projectPath === "string" && params.projectPath.length > 0;
+  const config2 = resolveProjectConfig({ projectPath: params.projectPath });
+  return closeUnityEditor({
+    projectPath: config2.projectPath,
+    projectPathExplicit,
+    pid: params.pid,
+    timeoutMs: params.timeoutMs ?? DEFAULT_CLOSE_TIMEOUT_MS,
+    force: params.force ?? false
+  });
+}
 async function unityAssertPathExists(params) {
   const exists = await pathExists(params.path);
   const bytes = exists ? await fileSize(params.path) : 0;
@@ -23405,7 +23739,7 @@ async function unityReadTextFile(params) {
   const maxBytes = params.maxBytes ?? 256 * 1024;
   const size = await fileSize(params.path);
   const truncated = size > maxBytes;
-  const text = truncated ? await readTail(params.path, maxBytes) : await readFile4(params.path, "utf8");
+  const text = truncated ? await readTail(params.path, maxBytes) : await readFile5(params.path, "utf8");
   return {
     success: true,
     path: params.path,
@@ -23439,11 +23773,11 @@ function toToolResult2(value) {
 }
 function defaultEditorLogPath() {
   const localAppData = process.env.LOCALAPPDATA || "";
-  return join6(localAppData, "Unity", "Editor", "Editor.log");
+  return join7(localAppData, "Unity", "Editor", "Editor.log");
 }
 async function readMcpSettings(filePath) {
   try {
-    return JSON.parse(await readFile4(filePath, "utf8"));
+    return JSON.parse(await readFile5(filePath, "utf8"));
   } catch {
     return void 0;
   }

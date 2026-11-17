@@ -274,3 +274,10 @@ If Unity does not answer a command, inspect:
 
 Use `unity_kill_stale` without `kill=true` first. It reports candidates and
 reasons before termination is requested.
+
+To close one editor without touching editors of other projects, use
+`unity_editor_close` (`projectPath`, default ProjectM, or `pid`). It matches the
+exact `-projectPath` value (or `Library/EditorInstance.json`), sends WM_CLOSE like
+the window X button, reports a blocking dialog such as a save prompt, and kills
+only with `force=true` after `timeoutMs`. It runs in the MCP server, so it also
+works when the in-editor bridge is down (safe mode, compile errors).

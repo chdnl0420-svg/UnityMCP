@@ -9,6 +9,7 @@ import { launchUnity, runUnityTests } from './unityCli.js';
 import { fileSize, pathExists, readTail } from './utils/files.js';
 import { summarizeEditorLog } from './utils/editorLog.js';
 import { findStaleCandidates, killProcess, listUnityRelatedProcesses } from './processes.js';
+import { closeUnityEditor, DEFAULT_CLOSE_TIMEOUT_MS } from './editorClose.js';
 import { normalizeOutputs, setPlayModeAndWait } from './playMode.js';
 import { clickUiTextAndWait, waitForUiText, waitThenClick } from './uiText.js';
 import { runUiTextQaFlow } from './qaFlow.js';
@@ -153,6 +154,13 @@ export function registerTools(server: McpServer): void {
     kill: z.boolean().optional(),
     includeUnity: z.boolean().optional(),
   }, async (params) => toToolResult(await unityKillStale(params)));
+
+  server.tool('unity_editor_close', 'Closes exactly one Unity editor: the one that opened projectPath (exact -projectPath match, or Library/EditorInstance.json), or the given pid. Editors of other projects are never touched. Sends WM_CLOSE like the window X button, reports a blocking dialog such as a save prompt, and kills only when force=true after timeoutMs. Runs in the MCP server, so it works when the in-editor bridge is down (safe mode, compile errors).', {
+    projectPath: z.string().optional(),
+    pid: z.number().int().positive().optional(),
+    timeoutMs: z.number().int().positive().max(300000).optional(),
+    force: z.boolean().optional(),
+  }, async (params) => toToolResult(await unityEditorClose(params)));
 
   // Recompiling, compile status and the console are covered by unity_editor_refresh,
   // unity_editor_compile_status, unity_editor_console_read and unity_editor_console_clear.
@@ -669,6 +677,19 @@ async function unityKillStale(params: any): Promise<unknown> {
     killed,
     candidates,
   };
+}
+
+async function unityEditorClose(params: any): Promise<unknown> {
+  // With only a pid, the default project path must not veto it.
+  const projectPathExplicit = typeof params.projectPath === 'string' && params.projectPath.length > 0;
+  const config = resolveProjectConfig({ projectPath: params.projectPath });
+  return closeUnityEditor({
+    projectPath: config.projectPath,
+    projectPathExplicit,
+    pid: params.pid,
+    timeoutMs: params.timeoutMs ?? DEFAULT_CLOSE_TIMEOUT_MS,
+    force: params.force ?? false,
+  });
 }
 
 async function unityAssertPathExists(params: any): Promise<unknown> {
